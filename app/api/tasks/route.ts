@@ -15,16 +15,20 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
 
-  const filters: Record<string, string> = {};
+  const filters: Record<string, string | number> = {};
   const tag = params.get("tag");
   const status = params.get("status");
   const search = params.get("search");
   const sortBy = params.get("sortBy");
+  const limit = params.get("limit");
+  const offset = params.get("offset");
 
   if (tag) filters.tag = tag;
   if (status) filters.status = status;
   if (search) filters.search = search;
   if (sortBy) filters.sortBy = sortBy;
+  if (limit) filters.limit = parseInt(limit, 10);
+  if (offset) filters.offset = parseInt(offset, 10);
 
   const result = await getTasks(filters as Parameters<typeof getTasks>[0]);
   if (result.error) {

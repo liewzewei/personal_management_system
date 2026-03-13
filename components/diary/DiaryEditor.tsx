@@ -56,6 +56,7 @@ interface DiaryEditorProps {
 
 export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProps) {
   const { toast } = useToast();
+  const [mounted, setMounted] = useState(false);
   const [title, setTitle] = useState(entry.title ?? "");
   const [tags, setTags] = useState<string[]>(entry.tags ?? []);
   const [tagInput, setTagInput] = useState("");
@@ -67,16 +68,7 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
   const titleRef = useRef<HTMLInputElement>(null);
   const entryIdRef = useRef(entry.id);
 
-  // Reset state when entry changes
-  useEffect(() => {
-    entryIdRef.current = entry.id;
-    setTitle(entry.title ?? "");
-    setTags(entry.tags ?? []);
-    setSaveStatus("idle");
-    setFailCount(0);
-    setDeleted(false);
-  }, [entry.id, entry.title, entry.tags]);
-
+  // Initialize editor (only on client)
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -88,29 +80,45 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
       Placeholder.configure({ placeholder: "Write something..." }),
       CharacterCount,
     ],
-    content: entry.content ?? "",
+    content: mounted ? (entry.content ?? "") : "",
     editorProps: {
       attributes: {
         class: "prose prose-sm max-w-none focus:outline-none min-h-[300px] px-1",
       },
     },
     onUpdate: () => {
-      scheduleSave();
+      if (mounted) scheduleSave();
     },
+    immediatelyRender: false,
   });
 
-  // Update editor content when entry changes
+  // Mount effect
   useEffect(() => {
-    if (editor && entry.content) {
+    setMounted(true);
+  }, []);
+
+  // Reset state when entry changes
+  useEffect(() => {
+    entryIdRef.current = entry.id;
+    setTitle(entry.title ?? "");
+    setTags(entry.tags ?? []);
+    setSaveStatus("idle");
+    setFailCount(0);
+    setDeleted(false);
+  }, [entry.id, entry.title, entry.tags]);
+
+  // Update editor content when entry changes (only after mounted)
+  useEffect(() => {
+    if (mounted && editor && entry.content) {
       const currentJson = JSON.stringify(editor.getJSON());
       const newJson = JSON.stringify(entry.content);
       if (currentJson !== newJson) {
         editor.commands.setContent(entry.content);
       }
-    } else if (editor && !entry.content) {
+    } else if (mounted && editor && !entry.content) {
       editor.commands.setContent("");
     }
-  }, [entry.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [entry.id, mounted, editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Focus title on new empty entry
   useEffect(() => {
@@ -191,6 +199,10 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [doSave]);
+
+  if (!mounted) {
+    return null;
+  }
 
   // Tag management
   const addTag = (tag: string) => {

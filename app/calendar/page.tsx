@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { EventModal, type EventFormData } from "@/components/calendar/EventModal";
+import { useCalendarEvents } from "@/lib/hooks/useCalendarEvents";
 import { useToast } from "@/lib/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent, IcalFeed } from "@/types";
@@ -46,12 +47,14 @@ export default function CalendarPage() {
   const { toast } = useToast();
 
   // State
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [feeds, setFeeds] = useState<IcalFeed[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [syncedJustNow, setSyncedJustNow] = useState(false);
   const [currentRange, setCurrentRange] = useState<{ start: string; end: string } | null>(null);
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
+
+  // React Query cached calendar events
+  const { events, refetch: refetchEvents } = useCalendarEvents(currentRange);
 
   // EventModal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -63,27 +66,21 @@ export default function CalendarPage() {
   const [defaultView, setDefaultView] = useState("dayGridMonth");
   const [weekStartsOn, setWeekStartsOn] = useState<0 | 1>(1); // 1=monday
 
-  // Fetch preferences on mount
+  // Fetch preferences + feeds in parallel on mount
   useEffect(() => {
-    fetch("/api/calendar/preferences")
-      .then(async (res) => {
+    Promise.all([
+      fetch("/api/calendar/preferences").then(async (res) => {
         const body = (await res.json()) as { data: { calendar_default_view: string; calendar_week_starts_on: string } | null };
         if (body.data) {
           setDefaultView(body.data.calendar_default_view);
           setWeekStartsOn(body.data.calendar_week_starts_on === "sunday" ? 0 : 1);
         }
-      })
-      .catch(() => {});
-  }, []);
-
-  // Fetch feeds on mount
-  useEffect(() => {
-    fetch("/api/calendar/feeds")
-      .then(async (res) => {
+      }),
+      fetch("/api/calendar/feeds").then(async (res) => {
         const body = (await res.json()) as { data: IcalFeed[] | null };
         if (body.data) setFeeds(body.data);
-      })
-      .catch(() => {});
+      }),
+    ]).catch(() => {});
   }, []);
 
   // Auto-sync stale feeds on mount
@@ -102,23 +99,10 @@ export default function CalendarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feeds.length]);
 
-  // Fetch events when range changes
-  const fetchEvents = useCallback(async (start: string, end: string) => {
-    try {
-      const params = new URLSearchParams({ start, end });
-      const res = await fetch(`/api/calendar/events?${params}`);
-      const body = (await res.json()) as { data: CalendarEvent[] | null };
-      if (body.data) setEvents(body.data);
-    } catch {
-      toast({ title: "Failed to load calendar events", variant: "destructive" });
-    }
-  }, [toast]);
-
   function handleDatesSet(arg: DatesSetArg) {
     const start = arg.start.toISOString();
     const end = arg.end.toISOString();
     setCurrentRange({ start, end });
-    fetchEvents(start, end);
   }
 
   // Compute calendar types from events
@@ -196,7 +180,7 @@ export default function CalendarPage() {
       }
       setSyncedJustNow(true);
       // Refresh events and feeds
-      if (currentRange) fetchEvents(currentRange.start, currentRange.end);
+      refetchEvents();
       const feedsRes = await fetch("/api/calendar/feeds");
       const feedsBody = (await feedsRes.json()) as { data: IcalFeed[] | null };
       if (feedsBody.data) setFeeds(feedsBody.data);
@@ -256,7 +240,7 @@ export default function CalendarPage() {
         toast({ title: "Event created" });
       }
       setModalOpen(false);
-      if (currentRange) fetchEvents(currentRange.start, currentRange.end);
+      refetchEvents();
     } catch {
       toast({ title: "Something went wrong", variant: "destructive" });
     }
@@ -273,7 +257,7 @@ export default function CalendarPage() {
       }
       toast({ title: "Event deleted" });
       setModalOpen(false);
-      if (currentRange) fetchEvents(currentRange.start, currentRange.end);
+      refetchEvents();
     } catch {
       toast({ title: "Something went wrong", variant: "destructive" });
     }

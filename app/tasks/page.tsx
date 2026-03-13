@@ -12,8 +12,8 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Plus, Search, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -27,7 +27,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { TaskCard } from "@/components/tasks/TaskCard";
 import { TaskModal, type TaskFormData } from "@/components/tasks/TaskModal";
 import { TaskDetailPanel } from "@/components/tasks/TaskDetailPanel";
-import { useTasks } from "@/lib/hooks/useTasks";
+import { useTasks, useTaskMutation } from "@/lib/hooks/useTasks";
 import { useTags } from "@/lib/hooks/useTags";
 import { useToast } from "@/lib/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -60,7 +60,9 @@ export default function TasksPage() {
   const [subtaskCounts, setSubtaskCounts] = useState<Record<string, { total: number; done: number }>>({});
 
   const { toast } = useToast();
-  const { tags: userTags, refetch: refetchTags } = useTags();
+  const { tags: userTags } = useTags();
+  const { updateTask: updateTaskMutation, deleteTask: deleteTaskMutation, duplicateTask: duplicateTaskMutation } = useTaskMutation();
+  const scrollSentinelRef = useRef<HTMLDivElement>(null);
 
   // Build API filters
   const apiFilters: TaskFilters = useMemo(() => {
@@ -71,7 +73,7 @@ export default function TasksPage() {
     return f;
   }, [activeTag, statusFilter, debouncedSearch, sortBy]);
 
-  const { tasks, loading, refetch } = useTasks(apiFilters);
+  const { tasks, loading, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useTasks(apiFilters);
 
   // Debounce search input
   useEffect(() => {
@@ -114,6 +116,22 @@ export default function TasksPage() {
     }
     return { inProgress, todo, done };
   }, [tasks]);
+
+  // Infinite scroll: observe sentinel element
+  useEffect(() => {
+    const sentinel = scrollSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Fetch subtask counts for all tasks
   useEffect(() => {
@@ -186,52 +204,38 @@ export default function TasksPage() {
     setDetailOpen(true);
   }
 
-  // Optimistic toggle done
+  // Optimistic toggle done — uses React Query mutation with cache rollback
   const handleToggleDone = useCallback(
     async (taskId: string, currentStatus: Task["status"]) => {
       const newStatus = currentStatus === "done" ? "todo" : "done";
-
-      // Optimistic: we refetch after the API call rather than manually mutating
-      try {
-        const res = await fetch(`/api/tasks/${taskId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: newStatus }),
-        });
-        if (!res.ok) throw new Error();
-        refetch();
-      } catch {
-        toast({ title: "Something went wrong, please try again", variant: "destructive" });
-        refetch();
-      }
+      updateTaskMutation.mutate(
+        { taskId, updates: { status: newStatus } },
+        {
+          onError: () => {
+            toast({ title: "Something went wrong, please try again", variant: "destructive" });
+          },
+        }
+      );
     },
-    [refetch, toast]
+    [updateTaskMutation, toast]
   );
 
   async function handleDuplicate(taskId: string) {
-    try {
-      const res = await fetch(`/api/tasks/${taskId}?action=duplicate`, { method: "POST" });
-      if (!res.ok) throw new Error();
-      toast({ title: "Task duplicated" });
-      refetch();
-      refetchTags();
-    } catch {
-      toast({ title: "Something went wrong, please try again", variant: "destructive" });
-    }
+    duplicateTaskMutation.mutate(taskId, {
+      onSuccess: () => toast({ title: "Task duplicated" }),
+      onError: () => toast({ title: "Something went wrong, please try again", variant: "destructive" }),
+    });
   }
 
   async function handleDelete(taskId: string) {
-    try {
-      const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
-      toast({ title: "Task deleted" });
-      setModalOpen(false);
-      setDetailOpen(false);
-      refetch();
-      refetchTags();
-    } catch {
-      toast({ title: "Something went wrong, please try again", variant: "destructive" });
-    }
+    deleteTaskMutation.mutate(taskId, {
+      onSuccess: () => {
+        toast({ title: "Task deleted" });
+        setModalOpen(false);
+        setDetailOpen(false);
+      },
+      onError: () => toast({ title: "Something went wrong, please try again", variant: "destructive" }),
+    });
   }
 
   async function handleSave(data: TaskFormData) {
@@ -301,7 +305,6 @@ export default function TasksPage() {
 
       setModalOpen(false);
       refetch();
-      refetchTags();
     } catch {
       toast({ title: "Something went wrong, please try again", variant: "destructive" });
     }
@@ -554,6 +557,14 @@ export default function TasksPage() {
                   </div>
                 )}
               </>
+            )}
+
+            {/* Infinite scroll sentinel */}
+            <div ref={scrollSentinelRef} className="h-4" />
+            {isFetchingNextPage && (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
             )}
           </div>
         </ScrollArea>

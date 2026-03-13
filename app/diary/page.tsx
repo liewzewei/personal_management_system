@@ -8,70 +8,44 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { DiaryList } from "@/components/diary/DiaryList";
-import { DiaryEditor } from "@/components/diary/DiaryEditor";
 import { Button } from "@/components/ui/button";
+
+const DiaryEditor = dynamic(
+  () => import("@/components/diary/DiaryEditor").then((m) => m.DiaryEditor),
+  { ssr: false, loading: () => <div className="h-full w-full animate-pulse bg-muted" /> }
+);
 import { useToast } from "@/lib/hooks/use-toast";
 import { PenLine } from "lucide-react";
+import { useDiaryEntries, useDiaryMutation } from "@/lib/hooks/useDiaryEntries";
+import { useTags } from "@/lib/hooks/useTags";
+import { useQueryClient } from "@tanstack/react-query";
 import type { DiaryEntry } from "@/types";
 
 export default function DiaryPage() {
   const { toast } = useToast();
-  const [entries, setEntries] = useState<DiaryEntry[]>([]);
+  const queryClient = useQueryClient();
   const [activeEntry, setActiveEntry] = useState<DiaryEntry | null>(null);
-  const [allTags, setAllTags] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [loading, setLoading] = useState(true);
   const [mobileShowEditor, setMobileShowEditor] = useState(false);
+  const autoOpenedRef = useRef(false);
 
-  // Fetch entries
-  const fetchEntries = useCallback(async () => {
-    try {
-      const params = new URLSearchParams();
-      if (selectedTags.length > 0) params.set("tag", selectedTags.join(","));
-      if (searchQuery) params.set("search", searchQuery);
+  // React Query hooks
+  const { entries, loading, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useDiaryEntries({ tags: selectedTags.length > 0 ? selectedTags : undefined, search: searchQuery || undefined });
+  const { tags: allTags } = useTags("diary");
+  const { createEntry, deleteEntry } = useDiaryMutation();
 
-      const res = await fetch(`/api/diary?${params}`);
-      const body = (await res.json()) as { data: DiaryEntry[] | null; error: string | null };
-      if (body.data) {
-        setEntries(body.data);
-        return body.data;
-      }
-    } catch {
-      toast({ title: "Failed to load diary entries", variant: "destructive" });
-    }
-    return null;
-  }, [selectedTags, searchQuery, toast]);
-
-  // Fetch tags
-  const fetchTags = useCallback(async () => {
-    try {
-      const res = await fetch("/api/tags?source=diary");
-      const body = (await res.json()) as { data: string[] | null; error: string | null };
-      if (body.data) setAllTags(body.data);
-    } catch {
-      // Tags are non-critical
-    }
-  }, []);
-
-  // Initial load
+  // Auto-open most recent entry on first load
   useEffect(() => {
-    setLoading(true);
-    Promise.all([fetchEntries(), fetchTags()]).then(([data]) => {
-      // Auto-open most recent entry
-      if (data && data.length > 0 && !activeEntry) {
-        loadEntry(data[0].id);
-      }
-      setLoading(false);
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Re-fetch on filter changes
-  useEffect(() => {
-    fetchEntries();
-  }, [fetchEntries]);
+    if (!autoOpenedRef.current && entries.length > 0 && !activeEntry) {
+      autoOpenedRef.current = true;
+      loadEntry(entries[0].id);
+    }
+  }, [entries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadEntry = async (id: string) => {
     try {
@@ -86,61 +60,50 @@ export default function DiaryPage() {
     }
   };
 
-  const handleNewEntry = async () => {
-    try {
-      const res = await fetch("/api/diary", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const body = (await res.json()) as { data: DiaryEntry | null; error: string | null };
-      if (body.data) {
-        setEntries((prev) => [body.data!, ...prev]);
-        setActiveEntry(body.data);
-        setMobileShowEditor(true);
-      }
-    } catch {
-      toast({ title: "Failed to create entry", variant: "destructive" });
-    }
-  };
+  const handleNewEntry = useCallback(async () => {
+    createEntry.mutate(undefined, {
+      onSuccess: (newEntry) => {
+        if (newEntry) {
+          setActiveEntry(newEntry);
+          setMobileShowEditor(true);
+        }
+      },
+      onError: () => {
+        toast({ title: "Failed to create entry", variant: "destructive" });
+      },
+    });
+  }, [createEntry, toast]);
 
-  const handleDeleteEntry = async (id: string) => {
-    try {
-      await fetch(`/api/diary/${id}`, { method: "DELETE" });
-      setEntries((prev) => prev.filter((e) => e.id !== id));
-      if (activeEntry?.id === id) {
-        setActiveEntry(null);
-        setMobileShowEditor(false);
-      }
-      toast({ title: "Entry deleted" });
-      fetchTags();
-    } catch {
-      toast({ title: "Failed to delete entry", variant: "destructive" });
-    }
-  };
+  const handleDeleteEntry = useCallback(async (id: string) => {
+    deleteEntry.mutate(id, {
+      onSuccess: () => {
+        if (activeEntry?.id === id) {
+          setActiveEntry(null);
+          setMobileShowEditor(false);
+        }
+        toast({ title: "Entry deleted" });
+      },
+      onError: () => {
+        toast({ title: "Failed to delete entry", variant: "destructive" });
+      },
+    });
+  }, [deleteEntry, activeEntry?.id, toast]);
 
   const handleDuplicateEntry = async (id: string) => {
     try {
-      // Fetch original, then create copy
       const res = await fetch(`/api/diary/${id}`);
       const original = (await res.json()) as { data: DiaryEntry | null; error: string | null };
       if (!original.data) return;
 
-      const copyRes = await fetch("/api/diary", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: original.data.title ? `Copy of ${original.data.title}` : "Copy of Untitled",
-          content: original.data.content,
-          content_text: original.data.content_text,
-          tags: original.data.tags,
-        }),
+      createEntry.mutate({
+        title: original.data.title ? `Copy of ${original.data.title}` : "Copy of Untitled",
+        content: original.data.content as Record<string, unknown> | undefined,
+        content_text: original.data.content_text ?? undefined,
+        tags: original.data.tags ?? undefined,
+      }, {
+        onSuccess: () => toast({ title: "Entry duplicated" }),
+        onError: () => toast({ title: "Failed to duplicate entry", variant: "destructive" }),
       });
-      const copy = (await copyRes.json()) as { data: DiaryEntry | null; error: string | null };
-      if (copy.data) {
-        setEntries((prev) => [copy.data!, ...prev]);
-        toast({ title: "Entry duplicated" });
-      }
     } catch {
       toast({ title: "Failed to duplicate entry", variant: "destructive" });
     }
@@ -153,11 +116,21 @@ export default function DiaryPage() {
   };
 
   const handleEntrySaved = (updated: DiaryEntry) => {
-    setEntries((prev) =>
-      prev.map((e) => (e.id === updated.id ? updated : e))
+    // Update entry in React Query cache
+    queryClient.setQueriesData<{ pages: DiaryEntry[][]; pageParams: number[] }>(
+      { queryKey: ["diary-entries"] },
+      (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) =>
+            page.map((e) => (e.id === updated.id ? updated : e))
+          ),
+        };
+      }
     );
     setActiveEntry(updated);
-    fetchTags();
+    queryClient.invalidateQueries({ queryKey: ["tags"] });
   };
 
   return (
@@ -176,6 +149,8 @@ export default function DiaryPage() {
           onDuplicateEntry={handleDuplicateEntry}
           onSearchChange={setSearchQuery}
           onTagToggle={handleTagToggle}
+          onLoadMore={hasNextPage ? fetchNextPage : undefined}
+          isLoadingMore={isFetchingNextPage}
         />
       </div>
 

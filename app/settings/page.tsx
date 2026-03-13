@@ -97,18 +97,20 @@ export default function SettingsPage() {
   }, [toast]);
 
   useEffect(() => {
-    fetchFeeds();
-    // Fetch preferences
-    fetch("/api/calendar/preferences")
-      .then(async (res) => {
-        const body = (await res.json()) as { data: UserPreferences | null };
-        if (body.data) {
-          setPrefs(body.data);
-          setDefaultView(body.data.calendar_default_view);
-          setWeekStartsOn(body.data.calendar_week_starts_on);
-        }
-      })
-      .catch(() => {});
+    // Fetch feeds and preferences in parallel
+    Promise.all([
+      fetchFeeds(),
+      fetch("/api/calendar/preferences")
+        .then(async (res) => {
+          const body = (await res.json()) as { data: UserPreferences | null };
+          if (body.data) {
+            setPrefs(body.data);
+            setDefaultView(body.data.calendar_default_view);
+            setWeekStartsOn(body.data.calendar_week_starts_on);
+          }
+        })
+        .catch(() => {}),
+    ]);
   }, [fetchFeeds]);
 
   function resetForm() {

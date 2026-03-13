@@ -11,6 +11,7 @@
 import type { Metadata } from "next";
 import { Toaster } from "@/components/ui/toaster";
 import { SidebarNav } from "@/components/SidebarNav";
+import { QueryProvider } from "@/components/QueryProvider";
 import "./globals.css";
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
@@ -30,11 +31,13 @@ export default function RootLayout({
   return (
     <html lang="en" className={cn("font-sans", geist.variable)}>
       <body className="min-h-screen bg-background text-foreground antialiased">
-        <div className="flex h-screen overflow-hidden">
-          <SidebarNav />
-          <main className="flex-1 overflow-y-auto">{children}</main>
-        </div>
-        <Toaster />
+        <QueryProvider>
+          <div className="flex h-screen overflow-hidden">
+            <SidebarNav />
+            <main className="flex-1 overflow-y-auto">{children}</main>
+          </div>
+          <Toaster />
+        </QueryProvider>
       </body>
     </html>
   );

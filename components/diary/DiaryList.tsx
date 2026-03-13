@@ -8,7 +8,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Search, MoreHorizontal, Copy, Trash2 } from "lucide-react";
+import { Plus, Search, MoreHorizontal, Copy, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +45,8 @@ interface DiaryListProps {
   onDuplicateEntry: (id: string) => void;
   onSearchChange: (query: string) => void;
   onTagToggle: (tag: string) => void;
+  onLoadMore?: () => void;
+  isLoadingMore?: boolean;
 }
 
 function formatEntryDate(iso: string): string {
@@ -68,6 +70,8 @@ export function DiaryList({
   onDuplicateEntry,
   onSearchChange,
   onTagToggle,
+  onLoadMore,
+  isLoadingMore,
 }: DiaryListProps) {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -231,9 +235,18 @@ export function DiaryList({
         )}
       </ScrollArea>
 
-      {/* Entry count */}
-      <div className="shrink-0 border-t px-3 py-2 text-xs text-muted-foreground">
-        {entries.length} {entries.length === 1 ? "entry" : "entries"}
+      {/* Load more / entry count */}
+      <div className="shrink-0 border-t px-3 py-2 text-xs text-muted-foreground flex items-center justify-between">
+        <span>{entries.length} {entries.length === 1 ? "entry" : "entries"}</span>
+        {onLoadMore && (
+          <button
+            onClick={onLoadMore}
+            disabled={isLoadingMore}
+            className="text-primary hover:underline disabled:opacity-50"
+          >
+            {isLoadingMore ? <Loader2 className="h-3 w-3 animate-spin" /> : "Load more"}
+          </button>
+        )}
       </div>
 
       {/* Delete confirmation dialog */}

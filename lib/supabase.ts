@@ -10,6 +10,23 @@
  * Rule for this codebase:
  * - UI components and route handlers must not write raw Supabase queries.
  * - Add/extend typed helper functions below and call those instead.
+ *
+ * Connection Pooling (important for serverless / Vercel):
+ * -------------------------------------------------------
+ * The Supabase JS client (`createBrowserClient` / `createServerClient`) connects
+ * via the **PostgREST HTTP API** — it does NOT open a raw Postgres TCP connection.
+ * This means the JS SDK already benefits from Supabase's built-in connection pooler
+ * (Supavisor) without any URL changes.
+ *
+ * If you ever add a **direct Postgres connection** (e.g. via `pg`, Drizzle ORM,
+ * Prisma, or raw SQL), use the **pooler URL** from the Supabase dashboard
+ * (port 6543, mode=transaction) instead of the direct URL (port 5432):
+ *
+ *   Direct:  postgresql://postgres.[ref]:@aws-0-[region].pooler.supabase.com:5432/postgres
+ *   Pooler:  postgresql://postgres.[ref]:@aws-0-[region].pooler.supabase.com:6543/postgres
+ *
+ * This prevents "too many connections" errors in serverless environments where
+ * each invocation would otherwise open a fresh Postgres connection.
  */
 
 import { createBrowserClient, createServerClient } from "@supabase/ssr";
@@ -154,7 +171,7 @@ export async function signOut(): Promise<SupabaseQueryResult<null>> {
  * @param filters - Optional tag, status, search, and sortBy parameters.
  * @returns Array of top-level tasks matching the filters.
  */
-export async function getTasks(filters?: TaskFilters): Promise<SupabaseQueryResult<Task[]>> {
+export async function getTasks(filters?: TaskFilters & { limit?: number; offset?: number }): Promise<SupabaseQueryResult<Task[]>> {
   try {
     const client = await createServerSupabaseClient();
     await requireUserId(client);
@@ -162,7 +179,7 @@ export async function getTasks(filters?: TaskFilters): Promise<SupabaseQueryResu
     let query = client
       .schema<PublicSchema>("public")
       .from("tasks")
-      .select("*")
+      .select("id,title,status,priority,tags,deadline,estimated_minutes,completed_at,parent_task_id,is_recurring,outlook_event_id,created_at,updated_at,user_id")
       .is("parent_task_id", null);
 
     if (filters?.status) {
@@ -193,6 +210,12 @@ export async function getTasks(filters?: TaskFilters): Promise<SupabaseQueryResu
         break;
       default:
         query = query.order("created_at", { ascending: false });
+    }
+
+    // Pagination
+    if (filters?.limit) {
+      const offset = filters.offset ?? 0;
+      query = query.range(offset, offset + filters.limit - 1);
     }
 
     const { data, error } = await query;
@@ -605,7 +628,7 @@ export async function getCalendarEvents(
     let query = client
       .schema<PublicSchema>("public")
       .from("calendar_events")
-      .select("*")
+      .select("id,title,start_time,end_time,is_all_day,calendar_type,source,task_id,outlook_event_id,user_id,outlook_calendar_id,created_at,updated_at")
       .order("start_time", { ascending: true });
 
     if (filters?.start) {
@@ -1105,7 +1128,7 @@ export async function getDiaryEntries(
     let query = client
       .schema<PublicSchema>("public")
       .from("diary_entries")
-      .select("*")
+      .select("id,title,content_text,tags,created_at,updated_at,user_id")
       .order("updated_at", { ascending: false });
 
     if (filters?.tag && filters.tag.length > 0) {

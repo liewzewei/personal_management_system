@@ -10,17 +10,40 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { WeeklyReview } from "@/components/analytics/WeeklyReview";
-import { StreakSection } from "@/components/analytics/StreakSection";
-import { CompletionChart } from "@/components/analytics/CompletionChart";
-import { TimeOfDayChart } from "@/components/analytics/TimeOfDayChart";
-import { TagBreakdownChart } from "@/components/analytics/TagBreakdownChart";
-import { OverdueSection } from "@/components/analytics/OverdueSection";
-import { useToast } from "@/lib/hooks/use-toast";
-import type { AnalyticsPayload } from "@/lib/analytics";
+import { useAnalytics } from "@/lib/hooks/useAnalytics";
+
+const ChartSkeleton = () => (
+  <div className="h-64 w-full animate-pulse rounded-lg bg-muted" />
+);
+
+const WeeklyReview = dynamic(
+  () => import("@/components/analytics/WeeklyReview").then((m) => m.WeeklyReview),
+  { loading: ChartSkeleton, ssr: false }
+);
+const StreakSection = dynamic(
+  () => import("@/components/analytics/StreakSection").then((m) => m.StreakSection),
+  { loading: ChartSkeleton, ssr: false }
+);
+const CompletionChart = dynamic(
+  () => import("@/components/analytics/CompletionChart").then((m) => m.CompletionChart),
+  { loading: ChartSkeleton, ssr: false }
+);
+const TimeOfDayChart = dynamic(
+  () => import("@/components/analytics/TimeOfDayChart").then((m) => m.TimeOfDayChart),
+  { loading: ChartSkeleton, ssr: false }
+);
+const TagBreakdownChart = dynamic(
+  () => import("@/components/analytics/TagBreakdownChart").then((m) => m.TagBreakdownChart),
+  { loading: ChartSkeleton, ssr: false }
+);
+const OverdueSection = dynamic(
+  () => import("@/components/analytics/OverdueSection").then((m) => m.OverdueSection),
+  { loading: ChartSkeleton, ssr: false }
+);
 
 type Range = "30d" | "90d" | "1y" | "all";
 
@@ -32,41 +55,17 @@ const RANGE_OPTIONS: { label: string; value: Range }[] = [
 ];
 
 export default function AnalyticsPage() {
-  const { toast } = useToast();
   const [range, setRange] = useState<Range>("30d");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [data, setData] = useState<AnalyticsPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [tags, setTags] = useState<string[]>([]);
 
-  const fetchAnalytics = useCallback(
-    async (r: Range, tag: string | null) => {
-      setLoading(true);
-      try {
-        const params = new URLSearchParams({ range: r });
-        if (tag) params.set("tag", tag);
-        const res = await fetch(`/api/analytics?${params}`);
-        const body = (await res.json()) as { data: AnalyticsPayload | null; error: string | null };
-        if (body.data) {
-          setData(body.data);
-          // Extract unique tags from completionByTag for the filter chips
-          const t = body.data.completionByTag
-            .map((e) => e.tag)
-            .filter((t) => t !== "Untagged");
-          setTags(t);
-        }
-      } catch {
-        toast({ title: "Failed to load analytics", variant: "destructive" });
-      } finally {
-        setLoading(false);
-      }
-    },
-    [toast]
-  );
+  const { data, loading } = useAnalytics(range, selectedTag);
 
-  useEffect(() => {
-    fetchAnalytics(range, selectedTag);
-  }, [range, selectedTag, fetchAnalytics]);
+  const tags = useMemo(() => {
+    if (!data) return [];
+    return data.completionByTag
+      .map((e) => e.tag)
+      .filter((t) => t !== "Untagged");
+  }, [data]);
 
   function handleRangeChange(r: Range) {
     setRange(r);

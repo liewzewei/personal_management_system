@@ -2,43 +2,32 @@
  * Client-side hook for fetching unique tags.
  *
  * Fetches from GET /api/tags with an optional source param.
- * - source='tasks': only task tags
- * - source='diary': only diary tags
- * - source='all' (default): merged tags from both sources
+ * Uses React Query for caching across page navigations.
  */
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-interface UseTagsReturn {
-  tags: string[];
-  loading: boolean;
-  refetch: () => void;
+async function fetchTags(source: string): Promise<string[]> {
+  const res = await fetch(`/api/tags?source=${source}`);
+  const body = (await res.json()) as { data: string[] | null; error: string | null };
+  if (res.ok && body.data) return body.data;
+  return [];
 }
 
-export function useTags(source: "tasks" | "diary" | "all" = "all"): UseTagsReturn {
-  const [tags, setTags] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+export function useTags(source: "tasks" | "diary" | "all" = "all") {
+  const queryClient = useQueryClient();
 
-  const refetch = useCallback(() => {
-    setLoading(true);
-    fetch(`/api/tags?source=${source}`)
-      .then(async (res) => {
-        const body = (await res.json()) as { data: string[] | null; error: string | null };
-        if (res.ok && body.data) {
-          setTags(body.data);
-        }
-      })
-      .catch(() => {
-        // silently fail — tags are non-critical
-      })
-      .finally(() => setLoading(false));
-  }, [source]);
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["tags", source],
+    queryFn: () => fetchTags(source),
+  });
 
-  useEffect(() => {
-    refetch();
-  }, [refetch]);
-
-  return { tags, loading, refetch };
+  return {
+    tags: data ?? [],
+    loading: isLoading,
+    refetch,
+    invalidate: () => queryClient.invalidateQueries({ queryKey: ["tags"] }),
+  };
 }
