@@ -31,6 +31,33 @@ export interface Task {
   updated_at: ISODateTime;
 }
 
+/** A top-level task with its subtasks pre-loaded. */
+export interface TaskWithSubtasks extends Task {
+  subtasks: Task[];
+}
+
+/** Filter parameters accepted by the task listing API. */
+export interface TaskFilters {
+  tag?: string;
+  status?: "todo" | "in_progress" | "done";
+  search?: string;
+  sortBy?: "deadline" | "priority" | "created_at" | "title";
+}
+
+/** Shape of the body accepted by POST /api/tasks and PATCH /api/tasks/[id]. */
+export interface TaskInput {
+  title?: string;
+  description?: string | null;
+  status?: "todo" | "in_progress" | "done";
+  priority?: "low" | "medium" | "high";
+  tags?: string[] | null;
+  deadline?: string | null;
+  estimated_minutes?: number | null;
+  is_recurring?: boolean;
+  recurrence_rule?: string | null;
+  parent_task_id?: string | null;
+}
+
 export interface CalendarEvent {
   id: UUID;
   user_id: UUID;
@@ -46,6 +73,56 @@ export interface CalendarEvent {
   task_id: UUID | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+}
+
+/** Input shape for creating/updating calendar events via API. */
+export interface CalendarEventInput {
+  title?: string;
+  description?: string | null;
+  start_time?: string;
+  end_time?: string;
+  is_all_day?: boolean;
+  calendar_type?: string | null;
+}
+
+/** An iCal feed row from the ical_feeds table. */
+export interface IcalFeed {
+  id: UUID;
+  user_id: UUID;
+  name: string;
+  ical_url: string;
+  calendar_type: string;
+  color: string | null;
+  is_active: boolean;
+  last_synced_at: ISODateTime | null;
+  created_at: ISODateTime;
+}
+
+/** Input shape for creating/updating iCal feeds via API. */
+export interface IcalFeedInput {
+  name?: string;
+  ical_url?: string;
+  calendar_type?: string;
+  color?: string | null;
+  is_active?: boolean;
+}
+
+/** User calendar preferences row from user_preferences table. */
+export interface UserPreferences {
+  id: UUID;
+  user_id: UUID;
+  calendar_default_view: string;
+  calendar_week_starts_on: string;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+/** Result of a single iCal feed sync operation. */
+export interface SyncResult {
+  added: number;
+  updated: number;
+  deleted: number;
+  errors: string[];
 }
 
 export interface DiaryEntry {

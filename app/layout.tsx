@@ -4,13 +4,18 @@
  * Responsibilities:
  * - Defines global document structure and metadata.
  * - Loads global styles.
- * - Provides a minimal, consistent page container.
- *
- * Note: Feature UI (tasks/calendar/diary/analytics) is intentionally not built yet.
+ * - Mounts the Toaster for toast notifications.
+ * - Renders the sidebar navigation alongside page content.
  */
 
 import type { Metadata } from "next";
+import { Toaster } from "@/components/ui/toaster";
+import { SidebarNav } from "@/components/SidebarNav";
 import "./globals.css";
+import { Geist } from "next/font/google";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata: Metadata = {
   title: "PMS (Personal Management System)",
@@ -23,11 +28,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={cn("font-sans", geist.variable)}>
       <body className="min-h-screen bg-background text-foreground antialiased">
-        {children}
+        <div className="flex h-screen overflow-hidden">
+          <SidebarNav />
+          <main className="flex-1 overflow-y-auto">{children}</main>
+        </div>
+        <Toaster />
       </body>
     </html>
   );
 }
-

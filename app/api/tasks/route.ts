@@ -1,18 +1,57 @@
 /**
- * Tasks API route placeholder.
+ * Tasks API routes (collection-level).
  *
- * This exists to establish routing and demonstrate the rule:
- * route handlers call typed helpers in `lib/supabase.ts` (no inline queries).
+ * GET  /api/tasks — List tasks with optional filters (tag, status, search, sortBy).
+ * POST /api/tasks — Create a new task (title required).
+ *
+ * All handlers verify the session via Supabase server client and delegate
+ * to typed helpers in `lib/supabase.ts`.
  */
 
-import { getTasks } from "@/lib/supabase";
-import { NextResponse } from "next/server";
+import { getTasks, createTask } from "@/lib/supabase";
+import { createTaskSchema } from "@/lib/validations/task";
+import { NextResponse, type NextRequest } from "next/server";
 
-export async function GET() {
-  const result = await getTasks();
+export async function GET(request: NextRequest) {
+  const params = request.nextUrl.searchParams;
+
+  const filters: Record<string, string> = {};
+  const tag = params.get("tag");
+  const status = params.get("status");
+  const search = params.get("search");
+  const sortBy = params.get("sortBy");
+
+  if (tag) filters.tag = tag;
+  if (status) filters.status = status;
+  if (search) filters.search = search;
+  if (sortBy) filters.sortBy = sortBy;
+
+  const result = await getTasks(filters as Parameters<typeof getTasks>[0]);
   if (result.error) {
-    return NextResponse.json({ error: result.error.message }, { status: 500 });
+    return NextResponse.json({ data: null, error: result.error.message }, { status: 500 });
   }
-  return NextResponse.json({ data: result.data });
+  return NextResponse.json({ data: result.data, error: null });
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body: unknown = await request.json();
+    const parsed = createTaskSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { data: null, error: parsed.error.issues[0]?.message ?? "Invalid input" },
+        { status: 400 }
+      );
+    }
+
+    const result = await createTask(parsed.data);
+    if (result.error) {
+      return NextResponse.json({ data: null, error: result.error.message }, { status: 500 });
+    }
+    return NextResponse.json({ data: result.data, error: null }, { status: 201 });
+  } catch {
+    return NextResponse.json({ data: null, error: "Invalid request body" }, { status: 400 });
+  }
 }
 
