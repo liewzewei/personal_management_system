@@ -27,7 +27,7 @@ PMS is a single-user, privacy-focused web application for personal productivity.
 ## Project Overview
 
 PMS solves the problem of scattered productivity tools by providing a unified system for:
-- **Task Management** - Create, organize, and track tasks with priorities, tags, deadlines, and subtasks
+- **Task Management** - Kanban board with drag-and-drop, priorities, tags, deadlines, and subtasks
 - **Calendar** - Local event management with one-way Outlook iCal sync integration
 - **Analytics Dashboard** - Visual insights into productivity patterns, streaks, and completion rates
 - **Diary** - Rich-text journaling with search, tagging, and image uploads
@@ -48,6 +48,7 @@ PMS solves the problem of scattered productivity tools by providing a unified sy
 | FullCalendar | Interactive calendar component | 6.1.20 |
 | Tiptap | Rich-text editor for diary entries | 3.20.1 |
 | React Query | Data fetching, caching, and state management | 5.90.21 |
+| @dnd-kit | Drag and drop functionality for Kanban board | 6.3.1 |
 | date-fns | Date manipulation and formatting | 4.1.0 |
 | node-ical | iCal file parsing for Outlook sync | 0.25.5 |
 | Zod | Schema validation and TypeScript inference | 4.3.6 |
@@ -73,7 +74,7 @@ PMS solves the problem of scattered productivity tools by providing a unified sy
 ├── login/              # Email/password login page
 ├── page.tsx            # Root redirect (tasks if authed, login if not)
 ├── settings/           # Calendar settings and iCal feed management
-└── tasks/              # Task management pages and layouts
+└── tasks/              # Task management pages and Kanban board
 
 /components
 ├── QueryProvider.tsx   # React Query provider configuration
@@ -81,7 +82,7 @@ PMS solves the problem of scattered productivity tools by providing a unified sy
 ├── analytics/          # Chart and analytics components
 ├── calendar/           # Calendar-specific components
 ├── diary/              # Diary editor and list components
-├── tasks/              # Task-specific components (TaskCard, TaskModal, etc.)
+├── tasks/              # Task-specific components (KanbanCard, TaskModal, etc.)
 └── ui/                 # shadcn/ui primitive components
 
 /lib
@@ -464,22 +465,30 @@ UI updates happen instantly:
 
 ### Tasks
 
+**Kanban Board Interface**
+- Three columns: To Do, In Progress, Done Today
+- Drag and drop cards between columns using the grip handle
+- Archive panel for older completed tasks
+- Tag-based filtering in sidebar
+
 **Creating a Task**
 - Press `N` key or click "+" button
 - Enter title, set priority (low/medium/high), add tags, set deadline
 - Click "Create Task" or press Ctrl+Enter
 
 **Managing Tasks**
-- Click checkbox to mark as done (optimistic update)
-- Click task to open detail panel
-- Add subtasks in the detail panel
-- Set recurring tasks with RRULE format
+- **Drag and drop**: Use grip handle on left edge of To Do cards to move to In Progress
+- **Quick complete**: Click checkbox on In Progress cards to move to Done
+- **Detail panel**: Click card body to view details, add subtasks, or edit
+- **Archive**: View older completed tasks in archive panel
 
 **Task Features**
 - **Keyboard shortcuts**: `N` for new task, `Ctrl+S` to save
+- **Drag and drop**: Visual feedback with ghost card during drag
 - **Subtasks**: Click a task → Detail panel → Add subtask
 - **Recurring tasks**: Set `is_recurring=true` and provide RRULE
 - **Deadline sync**: Tasks with deadlines create calendar events
+- **Tag badges**: Independent count badges in sidebar
 
 ### Calendar
 
@@ -556,6 +565,16 @@ UI updates happen instantly:
 | Tasks not appearing | Database query error | Check Supabase logs for column errors (e.g., missing `calendar_event_id`) |
 | Diary editor not loading | SSR hydration error | Ensure `immediatelyRender: false` in Tiptap config |
 | Analytics charts empty | No data in date range | Create some tasks with completion dates |
+
+## Recent Changes
+
+### March 2026 - Kanban Board Migration
+- **Migrated from task list to Kanban board** with three columns (To Do, In Progress, Done Today)
+- **Implemented drag-and-drop** using @dnd-kit with visual feedback and ghost cards
+- **Added archive panel** for older completed tasks with infinite scroll
+- **Separated diary and task tags** with independent count badges in sidebar
+- **Added task tag counts API** for accurate sidebar badge counts
+- **Improved task management** with grip handles and smooth transitions
 
 ## Future Roadmap
 
