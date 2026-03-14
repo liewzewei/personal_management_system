@@ -1,21 +1,35 @@
 /**
- * Tasks page — main task management interface.
+ * Tasks page — Kanban board interface.
  *
- * Three-column layout:
- * - Left sidebar (fixed ~220px): tag filters with counts
- * - Main content area: task list grouped by status
+ * Layout:
+ * - Left sidebar (fixed ~220px): tag filters with independent count badges
+ * - Main content: three-column Kanban board (To Do | In Progress | Done)
  * - Right panel (slide-in): task detail view
+ * - Archive panel (slide-in): completed tasks from previous days
  *
- * Features: search, sort, status filter, keyboard shortcut (N),
- * optimistic checkbox updates, and toast notifications.
+ * Features: search, sort, drag-and-drop (To Do → In Progress only),
+ * completion checkbox, keyboard shortcut (N), optimistic updates,
+ * archive with reopen, and toast notifications.
  */
 
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search, Loader2 } from "lucide-react";
+import { Plus, Search, Loader2, Archive } from "lucide-react";
+import {
+  DndContext,
+  DragOverlay,
+  useDroppable,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -24,24 +38,75 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { TaskCard } from "@/components/tasks/TaskCard";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import { KanbanCard } from "@/components/tasks/KanbanCard";
 import { TaskModal, type TaskFormData } from "@/components/tasks/TaskModal";
 import { TaskDetailPanel } from "@/components/tasks/TaskDetailPanel";
 import { useTasks, useTaskMutation } from "@/lib/hooks/useTasks";
 import { useTags } from "@/lib/hooks/useTags";
+import { useTaskTagCounts } from "@/lib/hooks/useTaskTagCounts";
 import { useToast } from "@/lib/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { Task, TaskFilters, TaskWithSubtasks } from "@/types";
+import { format, parseISO } from "date-fns";
 
 const DEFAULT_TAGS = ["Personal", "Exercise", "Academic", "Extra-Academic"];
 
-type StatusFilter = "all" | "todo" | "in_progress" | "done";
 type SortOption = "created_at" | "deadline" | "priority" | "title";
+
+const ARCHIVE_PAGE_SIZE = 20;
+
+// --- Droppable column wrapper ---
+
+function DroppableColumn({
+  id,
+  title,
+  count,
+  isOver,
+  children,
+}: {
+  id: string;
+  title: string;
+  count: number;
+  isOver: boolean;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver: dropping } = useDroppable({ id });
+  const highlighted = isOver || dropping;
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex flex-col min-w-0 flex-1 rounded-lg bg-muted/40 border",
+        highlighted && "border-dashed border-primary bg-primary/5"
+      )}
+    >
+      <div className="flex items-center gap-2 px-4 py-3 border-b">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <Badge variant="secondary" className="text-xs">
+          {count}
+        </Badge>
+      </div>
+      <div
+        className="flex-1 overflow-y-auto p-3 space-y-2"
+        style={{ overscrollBehavior: 'contain' }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export default function TasksPage() {
   // Filters
   const [activeTag, setActiveTag] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("created_at");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -53,27 +118,38 @@ export default function TasksPage() {
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  // Collapsed "done" group
-  const [showDone, setShowDone] = useState(false);
+  // Archive panel
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveLimit, setArchiveLimit] = useState(ARCHIVE_PAGE_SIZE);
+
+  // DnD state
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
 
   // Subtask counts cache: taskId -> { total, done }
   const [subtaskCounts, setSubtaskCounts] = useState<Record<string, { total: number; done: number }>>({});
 
   const { toast } = useToast();
-  const { tags: userTags } = useTags();
+  const { tags: userTags } = useTags("tasks");
+  const { data: tagCounts } = useTaskTagCounts();
   const { updateTask: updateTaskMutation, deleteTask: deleteTaskMutation, duplicateTask: duplicateTaskMutation } = useTaskMutation();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
 
-  // Build API filters
+  // Build API filters — no status filter for Kanban (we need all statuses)
   const apiFilters: TaskFilters = useMemo(() => {
     const f: TaskFilters = { sortBy };
     if (activeTag) f.tag = activeTag;
-    if (statusFilter !== "all") f.status = statusFilter;
     if (debouncedSearch) f.search = debouncedSearch;
     return f;
-  }, [activeTag, statusFilter, debouncedSearch, sortBy]);
+  }, [activeTag, debouncedSearch, sortBy]);
 
-  const { tasks, loading, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useTasks(apiFilters);
+  const { tasks, loading, refetch, queryClient, fetchNextPage, hasNextPage, isFetchingNextPage } = useTasks(apiFilters);
+
+  // @dnd-kit sensors with keyboard accessibility
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor)
+  );
 
   // Debounce search input
   useEffect(() => {
@@ -90,32 +166,42 @@ export default function TasksPage() {
     return combined;
   }, [userTags]);
 
-  // Compute tag counts (incomplete tasks only)
-  const tagCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const tag of allTags) counts[tag] = 0;
+  // Group tasks by status for Kanban columns
+  const todayStart = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const grouped = useMemo(() => {
+    const todo: Task[] = [];
+    const inProgress: Task[] = [];
+    const doneToday: Task[] = [];
+    const doneArchive: Task[] = [];
+
     for (const task of tasks) {
-      if (task.status !== "done" && task.tags) {
-        for (const tag of task.tags) {
-          counts[tag] = (counts[tag] ?? 0) + 1;
+      if (task.status === "todo") {
+        todo.push(task);
+      } else if (task.status === "in_progress") {
+        inProgress.push(task);
+      } else if (task.status === "done") {
+        if (task.completed_at && new Date(task.completed_at) >= todayStart) {
+          doneToday.push(task);
+        } else {
+          doneArchive.push(task);
         }
       }
     }
-    return counts;
-  }, [tasks, allTags]);
 
-  // Group tasks by status
-  const grouped = useMemo(() => {
-    const inProgress: Task[] = [];
-    const todo: Task[] = [];
-    const done: Task[] = [];
-    for (const task of tasks) {
-      if (task.status === "in_progress") inProgress.push(task);
-      else if (task.status === "todo") todo.push(task);
-      else done.push(task);
-    }
-    return { inProgress, todo, done };
-  }, [tasks]);
+    // Sort archive by completed_at descending
+    doneArchive.sort((a, b) => {
+      const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+      const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    return { todo, inProgress, doneToday, doneArchive };
+  }, [tasks, todayStart]);
 
   // Infinite scroll: observe sentinel element
   useEffect(() => {
@@ -176,7 +262,68 @@ export default function TasksPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // --- Handlers ---
+  // --- DnD handlers ---
+
+  function handleDragStart(event: DragStartEvent) {
+    console.log('drag started', event.active.id);
+    setActiveDragId(event.active.id as string);
+  }
+
+  function handleDragOver(event: { over: { id: string | number } | null }) {
+    setDragOverColumn(event.over ? String(event.over.id) : null);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    setActiveDragId(null);
+    setDragOverColumn(null);
+
+    if (!over) return;
+
+    // Only allow drop on In Progress column
+    if (String(over.id) === "in-progress-column") {
+      const taskId = active.id as string;
+
+      // Optimistic update — move card to In Progress in cache
+      queryClient.setQueriesData<{ pages: Task[][]; pageParams: number[] }>(
+        { queryKey: ["tasks"] },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) =>
+              page.map((task) =>
+                task.id === taskId ? { ...task, status: "in_progress" as const } : task
+              )
+            ),
+          };
+        }
+      );
+
+      // API call
+      fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "in_progress" }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("Failed");
+          queryClient.invalidateQueries({ queryKey: ["task-tag-counts"] });
+        })
+        .catch(() => {
+          queryClient.invalidateQueries({ queryKey: ["tasks"] });
+          toast({ title: "Failed to update task status", variant: "destructive" });
+        });
+    }
+    // Any other drop target: card snaps back automatically (no action)
+  }
+
+  function handleDragCancel() {
+    setActiveDragId(null);
+    setDragOverColumn(null);
+  }
+
+  // --- Task handlers ---
 
   function openNewTaskModal() {
     setEditingTaskId(null);
@@ -204,20 +351,84 @@ export default function TasksPage() {
     setDetailOpen(true);
   }
 
-  // Optimistic toggle done — uses React Query mutation with cache rollback
-  const handleToggleDone = useCallback(
-    async (taskId: string, currentStatus: Task["status"]) => {
-      const newStatus = currentStatus === "done" ? "todo" : "done";
-      updateTaskMutation.mutate(
-        { taskId, updates: { status: newStatus } },
-        {
-          onError: () => {
-            toast({ title: "Something went wrong, please try again", variant: "destructive" });
-          },
+  // Completion checkbox handler — optimistic move to Done
+  const handleComplete = useCallback(
+    (taskId: string) => {
+      const completedAt = new Date().toISOString();
+
+      // Optimistic update — move card to Done in cache
+      queryClient.setQueriesData<{ pages: Task[][]; pageParams: number[] }>(
+        { queryKey: ["tasks"] },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) =>
+              page.map((task) =>
+                task.id === taskId
+                  ? { ...task, status: "done" as const, completed_at: completedAt }
+                  : task
+              )
+            ),
+          };
         }
       );
+
+      // API call in background
+      fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "done" }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("Failed");
+          queryClient.invalidateQueries({ queryKey: ["task-tag-counts"] });
+        })
+        .catch(() => {
+          queryClient.invalidateQueries({ queryKey: ["tasks"] });
+          toast({ title: "Failed to complete task. Please try again.", variant: "destructive" });
+        });
     },
-    [updateTaskMutation, toast]
+    [queryClient, toast]
+  );
+
+  // Archive reopen handler
+  const handleReopen = useCallback(
+    (taskId: string) => {
+      // Optimistic update — move back to todo
+      queryClient.setQueriesData<{ pages: Task[][]; pageParams: number[] }>(
+        { queryKey: ["tasks"] },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) =>
+              page.map((task) =>
+                task.id === taskId
+                  ? { ...task, status: "todo" as const, completed_at: null }
+                  : task
+              )
+            ),
+          };
+        }
+      );
+
+      fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "todo" }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("Failed");
+          queryClient.invalidateQueries({ queryKey: ["tasks"] });
+          queryClient.invalidateQueries({ queryKey: ["task-tag-counts"] });
+        })
+        .catch(() => {
+          queryClient.invalidateQueries({ queryKey: ["tasks"] });
+          toast({ title: "Failed to reopen task", variant: "destructive" });
+        });
+    },
+    [queryClient, toast]
   );
 
   async function handleDuplicate(taskId: string) {
@@ -305,6 +516,7 @@ export default function TasksPage() {
 
       setModalOpen(false);
       refetch();
+      queryClient.invalidateQueries({ queryKey: ["task-tag-counts"] });
     } catch {
       toast({ title: "Something went wrong, please try again", variant: "destructive" });
     }
@@ -360,15 +572,10 @@ export default function TasksPage() {
       });
       // Re-fetch detail panel data
       if (detailTaskId) {
-        const res = await fetch(`/api/tasks/${detailTaskId}`);
-        const body = (await res.json()) as { data: TaskWithSubtasks | null };
-        if (body.data) {
-          // Force re-render by toggling the panel
-          setDetailTaskId(null);
-          setTimeout(() => {
-            setDetailTaskId(detailTaskId);
-          }, 0);
-        }
+        setDetailTaskId(null);
+        setTimeout(() => {
+          setDetailTaskId(detailTaskId);
+        }, 0);
       }
       refetch();
     } catch {
@@ -376,44 +583,18 @@ export default function TasksPage() {
     }
   }
 
-  // --- Render helpers ---
+  // --- Derived state ---
 
-  function renderGroup(title: string, groupTasks: Task[], collapsible = false) {
-    if (collapsible && groupTasks.length === 0) return null;
-
-    return (
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
-          <span className="text-xs text-muted-foreground">({groupTasks.length})</span>
-          {collapsible && groupTasks.length > 0 && (
-            <button
-              className="text-xs text-primary hover:underline"
-              onClick={() => setShowDone(!showDone)}
-            >
-              {showDone ? "Hide completed" : `Show ${groupTasks.length} completed`}
-            </button>
-          )}
-        </div>
-        {(!collapsible || showDone) &&
-          groupTasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              subtaskCount={subtaskCounts[task.id]?.total ?? 0}
-              subtaskDoneCount={subtaskCounts[task.id]?.done ?? 0}
-              onToggleDone={handleToggleDone}
-              onClick={openDetail}
-              onEdit={openEditModal}
-              onDuplicate={handleDuplicate}
-              onDelete={handleDelete}
-            />
-          ))}
-      </div>
-    );
-  }
-
+  const activeDragTask = activeDragId ? tasks.find((t) => t.id === activeDragId) : null;
   const noTasks = tasks.length === 0 && !loading;
+  const archiveTasks = grouped.doneArchive.slice(0, archiveLimit);
+  const hasMoreArchive = grouped.doneArchive.length > archiveLimit;
+
+  const priorityConfig: Record<string, { label: string; className: string }> = {
+    high: { label: "High", className: "bg-red-100 text-red-700 border-red-200" },
+    medium: { label: "Medium", className: "bg-yellow-100 text-yellow-700 border-yellow-200" },
+    low: { label: "Low", className: "bg-gray-100 text-gray-600 border-gray-200" },
+  };
 
   return (
     <div className="flex h-screen">
@@ -435,7 +616,7 @@ export default function TasksPage() {
             >
               <span>All Tasks</span>
               <span className="text-xs opacity-70">
-                {tasks.filter((t) => t.status !== "done").length}
+                {tagCounts?.["All Tasks"] ?? 0}
               </span>
             </button>
 
@@ -451,7 +632,7 @@ export default function TasksPage() {
                 onClick={() => setActiveTag(tag)}
               >
                 <span className="truncate">{tag}</span>
-                <span className="text-xs opacity-70">{tagCounts[tag] ?? 0}</span>
+                <span className="text-xs opacity-70">{tagCounts?.[tag] ?? 0}</span>
               </button>
             ))}
           </div>
@@ -496,78 +677,147 @@ export default function TasksPage() {
               </Button>
             </div>
           </div>
-
-          {/* Status filter toggles */}
-          <div className="flex gap-1 mt-3">
-            {(["all", "todo", "in_progress", "done"] as const).map((s) => (
-              <button
-                key={s}
-                className={cn(
-                  "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                  statusFilter === s
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                )}
-                onClick={() => setStatusFilter(s)}
-              >
-                {s === "all" ? "All" : s === "todo" ? "Todo" : s === "in_progress" ? "In Progress" : "Done"}
-              </button>
-            ))}
-          </div>
         </header>
 
-        {/* Task List */}
-        <ScrollArea className="flex-1">
-          <div className="p-6 space-y-6">
-            {loading && (
-              <p className="text-sm text-muted-foreground">Loading tasks...</p>
-            )}
+        {/* Kanban Board */}
+        <div className="flex-1 overflow-hidden">
+          {loading && (
+            <div className="flex items-center justify-center h-full">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
 
-            {noTasks && (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <p className="text-muted-foreground mb-2">
-                  No tasks yet — press <kbd className="rounded border bg-muted px-1.5 py-0.5 text-xs font-mono">N</kbd> or click New Task to get started
-                </p>
+          {noTasks && (
+            <div className="flex flex-col items-center justify-center h-full text-center">
+              <p className="text-muted-foreground mb-2">
+                No tasks yet — press <kbd className="rounded border bg-muted px-1.5 py-0.5 text-xs font-mono">N</kbd> or click New Task to get started
+              </p>
+            </div>
+          )}
+
+          {!loading && tasks.length > 0 && (
+            <DndContext
+              sensors={sensors}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+              onDragCancel={handleDragCancel}
+            >
+              <div className="flex gap-4 h-full p-4">
+                {/* To Do Column */}
+                <DroppableColumn
+                  id="todo-column"
+                  title="To Do"
+                  count={grouped.todo.length}
+                  isOver={false}
+                >
+                  {grouped.todo.map((task) => (
+                    <KanbanCard
+                      key={task.id}
+                      task={task}
+                      column="todo"
+                      subtaskCount={subtaskCounts[task.id]?.total ?? 0}
+                      subtaskDoneCount={subtaskCounts[task.id]?.done ?? 0}
+                      onClick={openDetail}
+                      onEdit={openEditModal}
+                      onDuplicate={handleDuplicate}
+                      onDelete={handleDelete}
+                    />
+                  ))}
+                  {grouped.todo.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-8">No tasks</p>
+                  )}
+                </DroppableColumn>
+
+                {/* In Progress Column */}
+                <DroppableColumn
+                  id="in-progress-column"
+                  title="In Progress"
+                  count={grouped.inProgress.length}
+                  isOver={dragOverColumn === "in-progress-column"}
+                >
+                  {grouped.inProgress.map((task) => (
+                    <KanbanCard
+                      key={task.id}
+                      task={task}
+                      column="in_progress"
+                      subtaskCount={subtaskCounts[task.id]?.total ?? 0}
+                      subtaskDoneCount={subtaskCounts[task.id]?.done ?? 0}
+                      onComplete={handleComplete}
+                      onClick={openDetail}
+                      onEdit={openEditModal}
+                      onDuplicate={handleDuplicate}
+                      onDelete={handleDelete}
+                    />
+                  ))}
+                  {grouped.inProgress.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-8">
+                      {activeDragId ? "Drop here to start" : "No tasks"}
+                    </p>
+                  )}
+                </DroppableColumn>
+
+                {/* Done Column */}
+                <DroppableColumn
+                  id="done-column"
+                  title="Done Today"
+                  count={grouped.doneToday.length}
+                  isOver={false}
+                >
+                  {grouped.doneToday.map((task) => (
+                    <KanbanCard
+                      key={task.id}
+                      task={task}
+                      column="done"
+                      subtaskCount={subtaskCounts[task.id]?.total ?? 0}
+                      subtaskDoneCount={subtaskCounts[task.id]?.done ?? 0}
+                      onClick={openDetail}
+                    />
+                  ))}
+                  {grouped.doneToday.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-8">No tasks completed today</p>
+                  )}
+
+                  {/* View Archive button */}
+                  {grouped.doneArchive.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full mt-2 text-muted-foreground"
+                      onClick={() => setArchiveOpen(true)}
+                    >
+                      <Archive className="mr-1.5 h-3.5 w-3.5" />
+                      View Archive ({grouped.doneArchive.length})
+                    </Button>
+                  )}
+                </DroppableColumn>
               </div>
-            )}
 
-            {!loading && tasks.length > 0 && (
-              <>
-                {statusFilter === "all" ? (
-                  <>
-                    {renderGroup("In Progress", grouped.inProgress)}
-                    {renderGroup("Todo", grouped.todo)}
-                    {renderGroup("Done", grouped.done, true)}
-                  </>
-                ) : (
-                  <div className="space-y-2">
-                    {tasks.map((task) => (
-                      <TaskCard
-                        key={task.id}
-                        task={task}
-                        subtaskCount={subtaskCounts[task.id]?.total ?? 0}
-                        subtaskDoneCount={subtaskCounts[task.id]?.done ?? 0}
-                        onToggleDone={handleToggleDone}
-                        onClick={openDetail}
-                        onEdit={openEditModal}
-                        onDuplicate={handleDuplicate}
-                        onDelete={handleDelete}
-                      />
-                    ))}
+              {/* Drag overlay — shows a ghost of the card being dragged */}
+              <DragOverlay>
+                {activeDragTask ? (
+                  <div className="opacity-80 rotate-2">
+                    <KanbanCard
+                      task={activeDragTask}
+                      column="todo"
+                      subtaskCount={subtaskCounts[activeDragTask.id]?.total ?? 0}
+                      subtaskDoneCount={subtaskCounts[activeDragTask.id]?.done ?? 0}
+                      onClick={() => {}}
+                    />
                   </div>
-                )}
-              </>
-            )}
+                ) : null}
+              </DragOverlay>
+            </DndContext>
+          )}
 
-            {/* Infinite scroll sentinel */}
-            <div ref={scrollSentinelRef} className="h-4" />
-            {isFetchingNextPage && (
-              <div className="flex justify-center py-4">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            )}
-          </div>
-        </ScrollArea>
+          {/* Infinite scroll sentinel (hidden, loads more tasks in background) */}
+          <div ref={scrollSentinelRef} className="h-1" />
+          {isFetchingNextPage && (
+            <div className="flex justify-center py-2">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </div>
       </main>
 
       {/* Task Modal */}
@@ -588,7 +838,87 @@ export default function TasksPage() {
         onEdit={openEditModal}
         onToggleSubtask={handleToggleSubtask}
       />
+
+      {/* Archive Panel */}
+      <Sheet open={archiveOpen} onOpenChange={setArchiveOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Completed Tasks</SheetTitle>
+            <SheetDescription>
+              Tasks completed before today
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="mt-6 space-y-2">
+            {archiveTasks.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-8">No archived tasks</p>
+            )}
+
+            {archiveTasks.map((task) => (
+              <div
+                key={task.id}
+                className="flex items-center gap-3 rounded-lg border bg-card p-3 cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => {
+                  setArchiveOpen(false);
+                  openDetail(task.id);
+                }}
+              >
+                <div className="flex-1 min-w-0 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm line-through text-muted-foreground truncate">
+                      {task.title}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className={cn("text-[10px] px-1.5 py-0", priorityConfig[task.priority]?.className)}
+                    >
+                      {priorityConfig[task.priority]?.label}
+                    </Badge>
+                  </div>
+                  {task.tags && task.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {task.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-[10px] text-secondary-foreground"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {task.completed_at && (
+                    <p className="text-xs text-muted-foreground">
+                      Completed {format(parseISO(task.completed_at), "d MMM yyyy, HH:mm")}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleReopen(task.id);
+                  }}
+                >
+                  Reopen
+                </Button>
+              </div>
+            ))}
+
+            {hasMoreArchive && (
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={() => setArchiveLimit((prev) => prev + ARCHIVE_PAGE_SIZE)}
+              >
+                Load more
+              </Button>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
-

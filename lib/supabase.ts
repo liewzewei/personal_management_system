@@ -513,6 +513,42 @@ export async function getAllTags(): Promise<SupabaseQueryResult<string[]>> {
   }
 }
 
+/**
+ * Fetches tag counts for ALL incomplete tasks regardless of active filters.
+ * Used exclusively for sidebar badge counts.
+ * Only selects id + tags columns for performance.
+ */
+export async function getTaskTagCounts(): Promise<
+  SupabaseQueryResult<Record<string, number>>
+> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("tasks")
+      .select("id,tags")
+      .neq("status", "done")
+      .is("parent_task_id", null);
+
+    if (error) return { data: null, error: asError("Failed to fetch tag counts", error) };
+
+    const counts: Record<string, number> = { "All Tasks": 0 };
+    for (const row of (data ?? []) as { tags: string[] | null }[]) {
+      counts["All Tasks"]++;
+      if (row.tags) {
+        for (const tag of row.tags) {
+          counts[tag] = (counts[tag] ?? 0) + 1;
+        }
+      }
+    }
+    return { data: counts, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch tag counts", cause) };
+  }
+}
+
 // =========================
 // Task → Calendar sync helpers
 // =========================

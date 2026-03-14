@@ -115,6 +115,7 @@ export function useTaskMutation() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["task-tag-counts"] });
     },
   });
 
@@ -132,6 +133,7 @@ export function useTaskMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       queryClient.invalidateQueries({ queryKey: ["tags"] });
+      queryClient.invalidateQueries({ queryKey: ["task-tag-counts"] });
     },
   });
 
@@ -143,6 +145,7 @@ export function useTaskMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       queryClient.invalidateQueries({ queryKey: ["tags"] });
+      queryClient.invalidateQueries({ queryKey: ["task-tag-counts"] });
     },
   });
 
@@ -156,6 +159,7 @@ export function useTaskMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       queryClient.invalidateQueries({ queryKey: ["tags"] });
+      queryClient.invalidateQueries({ queryKey: ["task-tag-counts"] });
     },
   });
 
