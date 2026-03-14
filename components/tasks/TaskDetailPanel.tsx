@@ -22,6 +22,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
+import { LinkedDescription } from "@/components/tasks/LinkedDescription";
+import { useSubtasks } from "@/lib/hooks/useSubtasks";
+import { useToggleSubtask } from "@/lib/hooks/useToggleSubtask";
+import { useToast } from "@/lib/hooks/use-toast";
 import type { TaskWithSubtasks } from "@/types";
 
 interface TaskDetailPanelProps {
@@ -29,7 +33,6 @@ interface TaskDetailPanelProps {
   onOpenChange: (open: boolean) => void;
   taskId: string | null;
   onEdit: (taskId: string) => void;
-  onToggleSubtask: (subtaskId: string, currentStatus: "todo" | "in_progress" | "done") => void;
 }
 
 const priorityConfig: Record<string, { label: string; className: string }> = {
@@ -93,10 +96,14 @@ export function TaskDetailPanel({
   onOpenChange,
   taskId,
   onEdit,
-  onToggleSubtask,
 }: TaskDetailPanelProps) {
   const [task, setTask] = useState<TaskWithSubtasks | null>(null);
   const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
+
+  // Shared subtask cache — same key as SubtaskDropdown in KanbanCard
+  const { data: subtasks } = useSubtasks(open && taskId ? taskId : null);
+  const toggleSubtask = useToggleSubtask(taskId ?? "");
 
   const fetchTask = useCallback(() => {
     if (!taskId) return;
@@ -117,10 +124,26 @@ export function TaskDetailPanel({
     if (!open) setTask(null);
   }, [open, taskId, fetchTask]);
 
+  function handleToggleSubtask(subtaskId: string, currentStatus: string) {
+    toggleSubtask.mutate(
+      { subtaskId, currentStatus },
+      {
+        onError: () => {
+          toast({
+            title: "Failed to update subtask. Please try again.",
+            variant: "destructive",
+          });
+        },
+      }
+    );
+  }
+
   const priority = task ? priorityConfig[task.priority] : null;
   const deadline = task?.deadline ? formatDeadline(task.deadline) : null;
-  const doneSubtasks = task?.subtasks.filter((s) => s.status === "done").length ?? 0;
-  const totalSubtasks = task?.subtasks.length ?? 0;
+  // Use shared subtask cache if available, fall back to task.subtasks
+  const activeSubtasks = subtasks ?? task?.subtasks ?? [];
+  const doneSubtasks = activeSubtasks.filter((s) => s.status === "done").length;
+  const totalSubtasks = activeSubtasks.length;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -165,7 +188,7 @@ export function TaskDetailPanel({
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Description
                 </p>
-                <p className="text-sm whitespace-pre-wrap">{task.description}</p>
+                <LinkedDescription text={task.description} />
               </div>
             )}
 
@@ -234,11 +257,11 @@ export function TaskDetailPanel({
                   />
                 </div>
                 <div className="space-y-1">
-                  {task.subtasks.map((sub) => (
+                  {activeSubtasks.map((sub) => (
                     <div key={sub.id} className="flex items-center gap-2">
                       <Checkbox
                         checked={sub.status === "done"}
-                        onCheckedChange={() => onToggleSubtask(sub.id, sub.status)}
+                        onCheckedChange={() => handleToggleSubtask(sub.id, sub.status)}
                       />
                       <span
                         className={cn(

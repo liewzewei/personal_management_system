@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { SubtaskDropdown } from "@/components/tasks/SubtaskDropdown";
 import type { Task } from "@/types";
 
 interface KanbanCardProps {
@@ -277,11 +278,9 @@ export function KanbanCard({
         )}
       </div>
 
-      {/* Subtask dropdown placeholder for In Progress cards */}
+      {/* Subtask dropdown for In Progress cards */}
       {column === "in_progress" && (
-        <>
-          {/* TODO Part 2: <SubtaskDropdown taskId={task.id} /> */}
-        </>
+        <SubtaskDropdown parentTaskId={task.id} />
       )}
     </div>
   );

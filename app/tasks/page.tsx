@@ -562,26 +562,6 @@ export default function TasksPage() {
     }
   }
 
-  async function handleToggleSubtask(subtaskId: string, currentStatus: "todo" | "in_progress" | "done") {
-    const newStatus = currentStatus === "done" ? "todo" : "done";
-    try {
-      await fetch(`/api/tasks/${subtaskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      // Re-fetch detail panel data
-      if (detailTaskId) {
-        setDetailTaskId(null);
-        setTimeout(() => {
-          setDetailTaskId(detailTaskId);
-        }, 0);
-      }
-      refetch();
-    } catch {
-      toast({ title: "Something went wrong, please try again", variant: "destructive" });
-    }
-  }
 
   // --- Derived state ---
 
@@ -836,7 +816,6 @@ export default function TasksPage() {
         onOpenChange={setDetailOpen}
         taskId={detailTaskId}
         onEdit={openEditModal}
-        onToggleSubtask={handleToggleSubtask}
       />
 
       {/* Archive Panel */}
