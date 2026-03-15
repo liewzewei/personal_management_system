@@ -21,6 +21,7 @@ export function useAnalytics(range: string, tag: string | null) {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["analytics", range, tag],
     queryFn: () => fetchAnalytics(range, tag),
+    staleTime: 1000 * 60 * 5, // 5 min — expensive computation, rarely changes
   });
 
   return {

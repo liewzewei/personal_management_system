@@ -7,7 +7,11 @@
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  reactStrictMode: true,
   serverExternalPackages: ["node-ical"],
+  experimental: {
+    optimizePackageImports: ["lucide-react", "recharts", "date-fns"],
+  },
 };
 
 export default nextConfig;

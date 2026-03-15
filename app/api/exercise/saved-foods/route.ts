@@ -14,7 +14,9 @@ export async function GET() {
   if (result.error) {
     return NextResponse.json({ data: null, error: result.error.message }, { status: 500 });
   }
-  return NextResponse.json({ data: result.data, error: null });
+  const response = NextResponse.json({ data: result.data, error: null });
+  response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+  return response;
 }
 
 export async function POST(request: NextRequest) {

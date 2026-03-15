@@ -22,6 +22,7 @@ export function useCalendarEvents(dateRange: { start: string; end: string } | nu
     queryKey: ["calendar-events", dateRange],
     queryFn: () => fetchCalendarEvents(dateRange!.start, dateRange!.end),
     enabled: !!dateRange,
+    staleTime: 1000 * 60 * 2, // 2 min
   });
 
   return {

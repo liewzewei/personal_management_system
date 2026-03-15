@@ -22,6 +22,7 @@ export function useTags(source: "tasks" | "diary" | "all" = "all") {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["tags", source],
     queryFn: () => fetchTags(source),
+    staleTime: 1000 * 60 * 5, // 5 min — tags change only on explicit user action
   });
 
   return {
