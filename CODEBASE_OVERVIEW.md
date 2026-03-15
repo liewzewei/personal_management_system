@@ -25,11 +25,13 @@ PMS is a single-user, privacy-focused productivity application that combines tas
 - **Calendar**: Local event management with one-way Outlook iCal sync
 - **Analytics**: Visual insights into productivity patterns, streaks, and completion rates
 - **Diary**: Rich-text journaling with search, tagging, and image uploads
+- **Exercise Tracking**: Running, swimming, and nutrition tracking with analytics and progress insights
 
 ### Tech Stack
 - **Framework**: Next.js 16.1.6 with App Router
 - **Database**: Supabase (PostgreSQL + Auth + Real-time)
-- **UI**: Tailwind CSS + shadcn/ui components
+- **UI**: Tailwind CSS v4.2.1 + shadcn/ui v4 components
+- **Component Library**: radix-ui unified package for primitives
 - **State Management**: React Query (TanStack Query) for server state
 - **Drag & Drop**: @dnd-kit for Kanban board
 - **Rich Text**: Tiptap editor for diary entries
@@ -144,7 +146,66 @@ id: uuid (PK)
 user_id: uuid (unique)
 calendar_default_view: text
 calendar_week_starts_on: text
+bmr: integer
+tdee: integer
+calorie_goal: integer
+last_exercise_date: date
 created_at: timestamptz
+updated_at: timestamptz
+```
+
+#### `exercise_sessions`
+```sql
+id: uuid (PK)
+user_id: uuid (FK)
+exercise_type: text (run/swim/other)
+date: date
+distance_km: numeric
+duration_minutes: integer
+pace_min_per_km: numeric
+stroke_type: text (freestyle/backstroke/breaststroke/butterfly/mixed)
+pool_length_m: integer
+is_open_water: boolean
+notes: text
+created_at: timestamptz
+```
+
+#### `food_logs`
+```sql
+id: uuid (PK)
+user_id: uuid (FK)
+date: date
+food_name: text
+calories: integer
+protein_g: numeric
+carbs_g: numeric
+fat_g: numeric
+meal_type: text (breakfast/lunch/dinner/snack)
+created_at: timestamptz
+```
+
+#### `saved_foods`
+```sql
+id: uuid (PK)
+user_id: uuid (FK)
+name: text
+calories: integer
+protein_g: numeric
+carbs_g: numeric
+fat_g: numeric
+serving_size: text
+created_at: timestamptz
+```
+
+#### `body_metrics`
+```sql
+id: uuid (PK)
+user_id: uuid (unique)
+weight_kg: numeric
+height_cm: integer
+age: integer
+gender: text (male/female/other)
+activity_level: text (sedentary/light/moderate/active/very_active)
 updated_at: timestamptz
 ```
 
@@ -323,6 +384,60 @@ interface AnalyticsData {
 - **Full-text Search**: PostgreSQL GIN index on content_text
 - **Tag Filtering**: Independent from task tags
 - **Chronological**: Sorted by updated_at
+
+### 5. Exercise Module
+
+#### Running Tracker
+- **Session Logging**: Distance, duration, pace, date
+- **Personal Records**: Automatic detection of fastest pace, longest distance, longest duration
+- **Analytics**: Weekly/monthly trends, total distance, average pace
+- **Calendar Integration**: Auto-create calendar events for runs
+- **Diary Integration**: Pre-populate diary with session details
+
+#### Swimming Tracker
+- **Pool Swimming**: Track laps, pool length (25m/50m), stroke type
+- **Open Water**: Distance and duration tracking
+- **SWOLF Score**: Automatic calculation (strokes + seconds per length)
+- **Stroke Types**: Freestyle, backstroke, breaststroke, butterfly, mixed
+- **Analytics**: Distance trends, stroke breakdown, SWOLF improvement
+
+#### Nutrition Tracking
+- **BMR/TDEE Calculator**: Based on weight, height, age, gender, activity level
+- **Food Logging**: Calories, protein, carbs, fat per meal
+- **Saved Foods**: Quick-add frequently eaten foods
+- **Daily Summary**: Total calories vs goal, macro breakdown
+- **Progress Charts**: Calorie intake trends, macro distribution
+
+#### Exercise Analytics
+- **Unified Dashboard**: Combined running, swimming, and nutrition metrics
+- **Time Range Selection**: 7 days, 30 days, 90 days, 1 year
+- **Charts**: Distance trends, calorie balance, workout frequency
+- **Personal Records Display**: All-time bests across activities
+
+### 6. Mobile-Responsive Design
+
+#### Desktop Experience
+- **Collapsible Sidebar**: Cookie-persisted state, icon-only collapsed view
+- **Keyboard Shortcut**: Cmd/Ctrl+B to toggle sidebar
+- **Smooth Transitions**: 200ms ease-linear animations
+- **Dynamic Layout**: Main content shifts when sidebar expands/collapses
+
+#### Mobile Experience (< 768px)
+- **Bottom Navigation**: Fixed 5-tab bar with Home, Tasks, Calendar, Diary, Exercise
+- **No Sidebar**: Sidebar hidden on mobile, replaced by bottom nav
+- **Touch-Optimized**: Larger tap targets, swipe-friendly Kanban
+- **Safe Area**: iOS notch/home bar support with safe-area-inset-bottom
+
+#### Responsive Components
+- **AppSidebar**: Desktop-only collapsible navigation with user profile
+- **BottomNav**: Mobile-only tab bar with active route highlighting
+- **MobileHeader**: Sticky header with page title and optional actions
+- **Kanban Board**: Vertical stacking on mobile, horizontal on desktop
+
+#### Breakpoint Strategy
+- **Mobile**: < 768px (md breakpoint)
+- **Desktop**: ≥ 768px
+- **Tailwind Classes**: `md:flex`, `md:hidden`, `md:flex-row` for responsive layouts
 
 ---
 
