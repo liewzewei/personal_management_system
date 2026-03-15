@@ -16,6 +16,10 @@ import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import CharacterCount from "@tiptap/extension-character-count";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { Mathematics } from "@tiptap/extension-mathematics";
+import { common, createLowlight } from "lowlight";
+import "katex/dist/katex.min.css";
 import {
   Bold,
   Italic,
@@ -36,6 +40,9 @@ import {
   Loader2,
   AlertTriangle,
   ArrowLeft,
+  Code,
+  FileCode2,
+  Sigma,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +60,23 @@ interface DiaryEditorProps {
   onSaved: (entry: DiaryEntry) => void;
   onBack?: () => void;
 }
+
+const lowlight = createLowlight(common);
+
+const CODE_LANGUAGES = [
+  { value: "", label: "Auto" },
+  { value: "javascript", label: "JavaScript" },
+  { value: "typescript", label: "TypeScript" },
+  { value: "python", label: "Python" },
+  { value: "java", label: "Java" },
+  { value: "cpp", label: "C++" },
+  { value: "html", label: "HTML" },
+  { value: "css", label: "CSS" },
+  { value: "json", label: "JSON" },
+  { value: "sql", label: "SQL" },
+  { value: "bash", label: "Bash" },
+  { value: "markdown", label: "Markdown" },
+] as const;
 
 export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProps) {
   const { toast } = useToast();
@@ -73,12 +97,17 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
+        codeBlock: false,
       }),
       Underline,
       Link.configure({ autolink: true, openOnClick: false }),
       Image,
       Placeholder.configure({ placeholder: "Write something..." }),
       CharacterCount,
+      CodeBlockLowlight.configure({ lowlight }),
+      Mathematics.configure({
+        katexOptions: { throwOnError: false },
+      }),
     ],
     content: mounted ? (entry.content ?? "") : "",
     editorProps: {
@@ -185,7 +214,7 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
   useEffect(() => {
     const handleBlur = () => doSave();
     window.addEventListener("blur", handleBlur);
-    return () => window.removeEventListener("blur-sm", handleBlur);
+    return () => window.removeEventListener("blur", handleBlur);
   }, [doSave]);
 
   // Ctrl+S
@@ -494,6 +523,87 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
 
         <div className="mx-1 h-5 w-px bg-border" />
 
+        {/* Inline code */}
+        <ToolbarButton
+          icon={<Code className="h-3.5 w-3.5" />}
+          active={editor.isActive("code")}
+          onClick={() => editor.chain().focus().toggleCode().run()}
+          tooltip="Inline Code (Ctrl+E)"
+        />
+
+        {/* Code block with language selector */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`h-7 w-7 ${editor.isActive("codeBlock") ? "bg-accent" : ""}`}
+              title="Code Block"
+            >
+              <FileCode2 className="h-3.5 w-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-44 p-1" align="start">
+            <div className="text-[10px] font-medium text-muted-foreground px-2 py-1">Language</div>
+            {CODE_LANGUAGES.map((lang) => (
+              <button
+                key={lang.value}
+                className="w-full rounded px-2 py-1 text-left text-xs hover:bg-accent"
+                onClick={() => {
+                  if (editor.isActive("codeBlock")) {
+                    editor.chain().focus().updateAttributes("codeBlock", { language: lang.value }).run();
+                  } else {
+                    editor.chain().focus().toggleCodeBlock().run();
+                    if (lang.value) {
+                      editor.chain().focus().updateAttributes("codeBlock", { language: lang.value }).run();
+                    }
+                  }
+                }}
+              >
+                {lang.label}
+              </button>
+            ))}
+          </PopoverContent>
+        </Popover>
+
+        {/* LaTeX math */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`h-7 w-7 ${editor.isActive("inlineMath") || editor.isActive("blockMath") ? "bg-accent" : ""}`}
+              title="Math (LaTeX)"
+            >
+              <Sigma className="h-3.5 w-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-56 p-2" align="start">
+            <div className="space-y-1.5">
+              <button
+                className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-accent flex items-center gap-2"
+                onClick={() => {
+                  editor.chain().focus().insertInlineMath({ latex: "E=mc^2" }).run();
+                }}
+              >
+                <span className="font-mono text-[10px] bg-muted px-1 rounded">$...$</span>
+                <span>Inline math</span>
+              </button>
+              <button
+                className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-accent flex items-center gap-2"
+                onClick={() => {
+                  editor.chain().focus().insertBlockMath({ latex: "\\sum_{i=1}^{n} x_i" }).run();
+                }}
+              >
+                <span className="font-mono text-[10px] bg-muted px-1 rounded">$$...$$</span>
+                <span>Block math</span>
+              </button>
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        <div className="mx-1 h-5 w-px bg-border" />
+
         <ToolbarButton
           icon={<Undo2 className="h-3.5 w-3.5" />}
           active={false}
@@ -543,6 +653,11 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
           {saveStatus === "error" && failCount < 3 && (
             <button onClick={doSave} className="text-destructive hover:underline">
               Save failed — click to retry
+            </button>
+          )}
+          {saveStatus === "idle" && (
+            <button onClick={doSave} className="hover:underline">
+              Save
             </button>
           )}
         </div>

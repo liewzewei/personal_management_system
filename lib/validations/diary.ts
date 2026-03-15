@@ -7,17 +7,17 @@
 import { z } from "zod";
 
 export const createDiaryEntrySchema = z.object({
-  title: z.string().max(500).optional(),
-  content: z.record(z.string(), z.unknown()).optional(),
-  content_text: z.string().optional(),
-  tags: z.array(z.string().max(50)).max(20).optional(),
+  title: z.string().max(500).nullish(),
+  content: z.record(z.string(), z.unknown()).nullish(),
+  content_text: z.string().nullish(),
+  tags: z.array(z.string().max(50)).max(20).nullish(),
 });
 
 export const updateDiaryEntrySchema = z.object({
-  title: z.string().max(500).optional(),
-  content: z.record(z.string(), z.unknown()).optional(),
-  content_text: z.string().optional(),
-  tags: z.array(z.string().max(50)).max(20).optional(),
+  title: z.string().max(500).nullish(),
+  content: z.record(z.string(), z.unknown()).nullish(),
+  content_text: z.string().nullish(),
+  tags: z.array(z.string().max(50)).max(20).nullish(),
 });
 
 export const diaryQuerySchema = z.object({

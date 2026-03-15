@@ -1220,7 +1220,7 @@ export async function getDiaryEntryById(entryId: string): Promise<SupabaseQueryR
  * Creates a new diary entry. Can be called with no data for an empty entry.
  */
 export async function createDiaryEntry(
-  entryData?: { title?: string; content?: Record<string, unknown>; content_text?: string; tags?: string[] }
+  entryData?: { title?: string | null; content?: Record<string, unknown> | null; content_text?: string | null; tags?: string[] | null }
 ): Promise<SupabaseQueryResult<DiaryEntry>> {
   try {
     const client = await createServerSupabaseClient();
@@ -1254,10 +1254,10 @@ export async function createDiaryEntry(
 export async function updateDiaryEntry(
   entryId: string,
   updates: {
-    title?: string;
-    content?: Record<string, unknown>;
-    content_text?: string;
-    tags?: string[];
+    title?: string | null;
+    content?: Record<string, unknown> | null;
+    content_text?: string | null;
+    tags?: string[] | null;
   }
 ): Promise<SupabaseQueryResult<DiaryEntry>> {
   try {

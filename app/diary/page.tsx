@@ -3,12 +3,12 @@
  *
  * Desktop: fixed-width sidebar (entry list) + flex editor.
  * Mobile: single panel — list by default, editor when an entry is selected.
- * Auto-opens the most recent entry on first load.
+ * Opens to blank state; user selects or creates an entry.
  */
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
 import { DiaryList } from "@/components/diary/DiaryList";
 import { Button } from "@/components/ui/button";
@@ -36,21 +36,12 @@ export default function DiaryPage() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileShowEditor, setMobileShowEditor] = useState(false);
-  const autoOpenedRef = useRef(false);
 
   // React Query hooks
   const { entries, loading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useDiaryEntries({ tags: selectedTags.length > 0 ? selectedTags : undefined, search: searchQuery || undefined });
   const { tags: allTags } = useTags("diary");
   const { createEntry, deleteEntry } = useDiaryMutation();
-
-  // Auto-open most recent entry on first load
-  useEffect(() => {
-    if (!autoOpenedRef.current && entries.length > 0 && !activeEntry) {
-      autoOpenedRef.current = true;
-      loadEntry(entries[0].id);
-    }
-  }, [entries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadEntry = async (id: string) => {
     try {
@@ -120,7 +111,7 @@ export default function DiaryPage() {
     );
   };
 
-  const handleEntrySaved = (updated: DiaryEntry) => {
+  const handleEntrySaved = useCallback((updated: DiaryEntry) => {
     // Update entry in React Query cache
     queryClient.setQueriesData<{ pages: DiaryEntry[][]; pageParams: number[] }>(
       { queryKey: ["diary-entries"] },
@@ -136,7 +127,7 @@ export default function DiaryPage() {
     );
     setActiveEntry(updated);
     queryClient.invalidateQueries({ queryKey: ["tags"] });
-  };
+  }, [queryClient]);
 
   return (
     <div className="flex flex-col h-full">
