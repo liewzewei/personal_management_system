@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ClipboardList,
+  Dumbbell,
   CalendarDays,
   BarChart3,
   BookOpen,
@@ -31,6 +32,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Tasks", href: "/tasks", icon: <ClipboardList className="h-4 w-4" /> },
+  { label: "Exercise", href: "/exercise", icon: <Dumbbell className="h-4 w-4" /> },
   { label: "Calendar", href: "/calendar", icon: <CalendarDays className="h-4 w-4" /> },
   { label: "Analytics", href: "/analytics", icon: <BarChart3 className="h-4 w-4" /> },
   { label: "Diary", href: "/diary", icon: <BookOpen className="h-4 w-4" /> },

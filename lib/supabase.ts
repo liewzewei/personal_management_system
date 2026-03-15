@@ -33,7 +33,9 @@ import { createBrowserClient, createServerClient } from "@supabase/ssr";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
-import type { CalendarEvent, CalendarEventInput, DiaryEntry, IcalFeed, IcalFeedInput, OAuthToken, OutlookSyncState, Task, TaskFilters, TaskInput, TaskWithSubtasks, UserPreferences } from "@/types";
+import type { BodyMetric, CalendarEvent, CalendarEventInput, DailyNutritionSummary, DiaryEntry, ExerciseSession, FoodLog, IcalFeed, IcalFeedInput, OAuthToken, OutlookSyncState, PersonalRecord, RunLap, SavedFood, Task, TaskFilters, TaskInput, TaskWithSubtasks, UserPreferences } from "@/types";
+import type { PRDistanceBucket } from "@/types";
+import { calculatePace, getDistanceBucket } from "@/lib/exercise-utils";
 
 type PublicSchema = "public";
 
@@ -1086,7 +1088,7 @@ export async function getUserPreferences(): Promise<SupabaseQueryResult<UserPref
  * Upserts user preferences (creates if not exists, updates if exists).
  */
 export async function upsertUserPreferences(
-  preferences: Partial<Pick<UserPreferences, "calendar_default_view" | "calendar_week_starts_on">>
+  preferences: Partial<Pick<UserPreferences, "calendar_default_view" | "calendar_week_starts_on" | "distance_unit" | "bmr_calories" | "daily_calorie_goal" | "height_cm" | "weight_kg" | "age" | "biological_sex" | "last_exercise_date">>
 ): Promise<SupabaseQueryResult<UserPreferences>> {
   try {
     const client = await createServerSupabaseClient();
@@ -1434,3 +1436,1049 @@ export async function getOAuthTokens(): Promise<SupabaseQueryResult<OAuthToken[]
   return { data: [], error: null };
 }
 
+// =========================
+// Exercise session helpers
+// =========================
+
+const EXERCISE_SESSION_COLUMNS =
+  "id,user_id,type,date,started_at,duration_seconds,distance_metres,calories_burned,route_name,effort_level,is_pr,pr_distance_bucket,notes,pool_length_metres,total_laps,stroke_type,swolf_score,calendar_event_id,created_at,updated_at";
+
+/**
+ * Fetches exercise sessions with optional filters.
+ */
+export async function getExerciseSessions(
+  filters?: {
+    type?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<SupabaseQueryResult<ExerciseSession[]>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    let query = client
+      .schema<PublicSchema>("public")
+      .from("exercise_sessions")
+      .select(EXERCISE_SESSION_COLUMNS)
+      .order("date", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (filters?.type) {
+      query = query.eq("type", filters.type);
+    }
+    if (filters?.from) {
+      query = query.gte("date", filters.from);
+    }
+    if (filters?.to) {
+      query = query.lte("date", filters.to);
+    }
+
+    const limit = filters?.limit ?? 20;
+    const offset = filters?.offset ?? 0;
+    query = query.range(offset, offset + limit - 1);
+
+    const { data, error } = await query;
+    if (error) return { data: null, error: asError("Failed to fetch exercise sessions", error) };
+    return { data: data as unknown as ExerciseSession[], error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch exercise sessions", cause) };
+  }
+}
+
+/**
+ * Fetches a single exercise session by ID with its run laps.
+ */
+export async function getExerciseSessionById(
+  sessionId: string
+): Promise<SupabaseQueryResult<ExerciseSession & { laps: RunLap[] }>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    const { data: session, error: sessionError } = await client
+      .schema<PublicSchema>("public")
+      .from("exercise_sessions")
+      .select(EXERCISE_SESSION_COLUMNS)
+      .eq("id", sessionId)
+      .single();
+
+    if (sessionError) return { data: null, error: asError("Failed to fetch exercise session", sessionError) };
+
+    const { data: laps, error: lapsError } = await client
+      .schema<PublicSchema>("public")
+      .from("run_laps")
+      .select("id,session_id,user_id,lap_number,distance_metres,duration_seconds,pace_seconds_per_km,created_at")
+      .eq("session_id", sessionId)
+      .order("lap_number", { ascending: true });
+
+    if (lapsError) return { data: null, error: asError("Failed to fetch run laps", lapsError) };
+
+    return {
+      data: {
+        ...(session as unknown as ExerciseSession),
+        laps: (laps as unknown as RunLap[]) ?? [],
+      },
+      error: null,
+    };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch exercise session", cause) };
+  }
+}
+
+/**
+ * Detects and updates personal records for a run session.
+ * Idempotent — safe to call multiple times for the same session.
+ * Returns { isPR, bucket } indicating whether this session set a new PR.
+ */
+async function detectAndUpdatePR(
+  client: SupabaseClient,
+  userId: string,
+  sessionId: string,
+  distanceMetres: number,
+  durationSeconds: number,
+  date: string
+): Promise<{ isPR: boolean; bucket: PRDistanceBucket | null }> {
+  const bucket = getDistanceBucket(distanceMetres);
+  if (!bucket) return { isPR: false, bucket: null };
+
+  const newPace = calculatePace(distanceMetres, durationSeconds);
+
+  const { data: existing } = await client
+    .schema<PublicSchema>("public")
+    .from("personal_records")
+    .select("id,best_pace_seconds_per_km,best_session_id")
+    .eq("user_id", userId)
+    .eq("distance_bucket", bucket)
+    .maybeSingle();
+
+  const existingPR = existing as { id: string; best_pace_seconds_per_km: number; best_session_id: string | null } | null;
+
+  if (!existingPR) {
+    // First PR for this bucket
+    await client
+      .schema<PublicSchema>("public")
+      .from("personal_records")
+      .insert({
+        user_id: userId,
+        distance_bucket: bucket,
+        best_pace_seconds_per_km: newPace,
+        best_session_id: sessionId,
+        achieved_at: date,
+      });
+    return { isPR: true, bucket };
+  }
+
+  // Idempotency: if this session is already the PR, return true
+  if (existingPR.best_session_id === sessionId) {
+    return { isPR: true, bucket };
+  }
+
+  if (newPace < existingPR.best_pace_seconds_per_km) {
+    // New PR — faster pace (lower is better)
+    await client
+      .schema<PublicSchema>("public")
+      .from("personal_records")
+      .update({
+        best_pace_seconds_per_km: newPace,
+        best_session_id: sessionId,
+        achieved_at: date,
+      })
+      .eq("id", existingPR.id);
+    return { isPR: true, bucket };
+  }
+
+  return { isPR: false, bucket: null };
+}
+
+/**
+ * Recalculates the PR for a given bucket from all remaining sessions.
+ * Called after deleting or editing a PR session.
+ */
+async function recalculatePRForBucket(
+  client: SupabaseClient,
+  userId: string,
+  bucket: PRDistanceBucket
+): Promise<void> {
+  const { min, max } = {
+    "1km": { min: 750, max: 1250 },
+    "5km": { min: 4750, max: 5250 },
+    "10km": { min: 9750, max: 10250 },
+    "half_marathon": { min: 20900, max: 21300 },
+  }[bucket];
+
+  // Find all runs in this bucket
+  const { data: candidates } = await client
+    .schema<PublicSchema>("public")
+    .from("exercise_sessions")
+    .select("id,distance_metres,duration_seconds,date")
+    .eq("user_id", userId)
+    .eq("type", "run")
+    .gte("distance_metres", min)
+    .lte("distance_metres", max)
+    .order("date", { ascending: false });
+
+  const runs = (candidates ?? []) as { id: string; distance_metres: number; duration_seconds: number; date: string }[];
+
+  if (runs.length === 0) {
+    // No runs in this bucket — delete the PR row
+    await client
+      .schema<PublicSchema>("public")
+      .from("personal_records")
+      .delete()
+      .eq("user_id", userId)
+      .eq("distance_bucket", bucket);
+
+    // Clear is_pr flag from any sessions that had it
+    await client
+      .schema<PublicSchema>("public")
+      .from("exercise_sessions")
+      .update({ is_pr: false, pr_distance_bucket: null })
+      .eq("user_id", userId)
+      .eq("pr_distance_bucket", bucket);
+    return;
+  }
+
+  // Find the fastest (lowest pace)
+  let best = runs[0];
+  let bestPace = calculatePace(best.distance_metres, best.duration_seconds);
+  for (const run of runs.slice(1)) {
+    const pace = calculatePace(run.distance_metres, run.duration_seconds);
+    if (pace < bestPace) {
+      best = run;
+      bestPace = pace;
+    }
+  }
+
+  // Upsert the PR
+  await client
+    .schema<PublicSchema>("public")
+    .from("personal_records")
+    .upsert(
+      {
+        user_id: userId,
+        distance_bucket: bucket,
+        best_pace_seconds_per_km: bestPace,
+        best_session_id: best.id,
+        achieved_at: best.date,
+      },
+      { onConflict: "user_id,distance_bucket" }
+    );
+
+  // Clear is_pr from all sessions in this bucket, then set the new best
+  await client
+    .schema<PublicSchema>("public")
+    .from("exercise_sessions")
+    .update({ is_pr: false, pr_distance_bucket: null })
+    .eq("user_id", userId)
+    .eq("pr_distance_bucket", bucket);
+
+  await client
+    .schema<PublicSchema>("public")
+    .from("exercise_sessions")
+    .update({ is_pr: true, pr_distance_bucket: bucket })
+    .eq("id", best.id);
+}
+
+/**
+ * Creates a calendar event from an exercise session.
+ * Non-blocking — failure returns null, never throws.
+ */
+async function createCalendarEventFromExercise(
+  client: SupabaseClient,
+  userId: string,
+  session: { type: string; date: string; distance_metres?: number | null; duration_seconds: number }
+): Promise<string | null> {
+  try {
+    const distLabel = session.distance_metres
+      ? `${(session.distance_metres / 1000).toFixed(2)}km`
+      : "";
+    const durMin = Math.round(session.duration_seconds / 60);
+    const typeLabel = session.type === "run" ? "Run" : session.type === "swim" ? "Swim" : "Exercise";
+    const title = distLabel
+      ? `[${typeLabel}] ${distLabel} - ${durMin}min`
+      : `[${typeLabel}] ${durMin}min`;
+
+    // Interpret date as local midnight
+    const startTime = new Date(session.date + "T00:00:00");
+
+    const row = {
+      user_id: userId,
+      title,
+      is_all_day: true,
+      start_time: startTime.toISOString(),
+      end_time: startTime.toISOString(),
+      source: "local" as const,
+      calendar_type: "EXERCISE",
+    };
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("calendar_events")
+      .insert(row)
+      .select("id")
+      .single();
+
+    if (error) {
+      console.error("Calendar event creation failed (non-blocking):", error);
+      return null;
+    }
+    return (data as { id: string }).id;
+  } catch (error) {
+    console.error("Calendar event creation failed (non-blocking):", error);
+    return null;
+  }
+}
+
+interface CreateExerciseSessionInput {
+  type: "run" | "swim" | "other";
+  date: string;
+  started_at?: string | null;
+  duration_seconds: number;
+  distance_metres?: number | null;
+  calories_burned?: number | null;
+  notes?: string | null;
+  route_name?: string | null;
+  effort_level?: number | null;
+  pool_length_metres?: 25 | 50 | null;
+  total_laps?: number | null;
+  stroke_type?: string | null;
+  swolf_score?: number | null;
+  laps?: { lap_number: number; distance_metres: number; duration_seconds: number }[] | null;
+}
+
+/**
+ * Creates a new exercise session with optional laps and PR detection.
+ * Calendar event creation and habit flag are non-blocking.
+ */
+export async function createExerciseSession(
+  data: CreateExerciseSessionInput
+): Promise<SupabaseQueryResult<ExerciseSession>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    // 1. INSERT exercise session
+    const row = {
+      user_id: userId,
+      type: data.type,
+      date: data.date,
+      started_at: data.started_at ?? null,
+      duration_seconds: data.duration_seconds,
+      distance_metres: data.distance_metres ?? null,
+      calories_burned: data.calories_burned ?? null,
+      notes: data.notes ?? null,
+      route_name: data.route_name ?? null,
+      effort_level: data.effort_level ?? null,
+      pool_length_metres: data.pool_length_metres ?? null,
+      total_laps: data.total_laps ?? null,
+      stroke_type: data.stroke_type ?? null,
+      swolf_score: data.swolf_score ?? null,
+    };
+
+    const { data: sessionData, error: sessionError } = await client
+      .schema<PublicSchema>("public")
+      .from("exercise_sessions")
+      .insert(row)
+      .select(EXERCISE_SESSION_COLUMNS)
+      .single();
+
+    if (sessionError) return { data: null, error: asError("Failed to create exercise session", sessionError) };
+
+    const session = sessionData as unknown as ExerciseSession;
+
+    // 2. Insert laps if provided
+    if (data.laps && data.laps.length > 0) {
+      const lapRows = data.laps.map((lap) => ({
+        session_id: session.id,
+        user_id: userId,
+        lap_number: lap.lap_number,
+        distance_metres: lap.distance_metres,
+        duration_seconds: lap.duration_seconds,
+        pace_seconds_per_km: lap.distance_metres > 0
+          ? calculatePace(lap.distance_metres, lap.duration_seconds)
+          : null,
+      }));
+
+      await client
+        .schema<PublicSchema>("public")
+        .from("run_laps")
+        .insert(lapRows);
+    }
+
+    // 3. PR detection for runs with distance
+    let isPR = false;
+    let prBucket: PRDistanceBucket | null = null;
+    if (data.type === "run" && data.distance_metres) {
+      try {
+        const result = await detectAndUpdatePR(
+          client, userId, session.id,
+          data.distance_metres, data.duration_seconds, data.date
+        );
+        isPR = result.isPR;
+        prBucket = result.bucket;
+
+        if (isPR && prBucket) {
+          await client
+            .schema<PublicSchema>("public")
+            .from("exercise_sessions")
+            .update({ is_pr: true, pr_distance_bucket: prBucket })
+            .eq("id", session.id);
+          session.is_pr = true;
+          session.pr_distance_bucket = prBucket;
+        }
+      } catch (prError) {
+        console.error("PR detection failed (non-blocking):", prError);
+      }
+    }
+
+    // 4. Calendar event (non-blocking)
+    try {
+      const calendarEventId = await createCalendarEventFromExercise(client, userId, {
+        type: data.type,
+        date: data.date,
+        distance_metres: data.distance_metres,
+        duration_seconds: data.duration_seconds,
+      });
+      if (calendarEventId) {
+        await client
+          .schema<PublicSchema>("public")
+          .from("exercise_sessions")
+          .update({ calendar_event_id: calendarEventId })
+          .eq("id", session.id);
+        session.calendar_event_id = calendarEventId;
+      }
+    } catch (calError) {
+      console.error("Calendar event creation failed (non-blocking):", calError);
+    }
+
+    // 5. Habit flag: update last_exercise_date (non-blocking)
+    try {
+      await client
+        .schema<PublicSchema>("public")
+        .from("user_preferences")
+        .upsert(
+          { user_id: userId, last_exercise_date: data.date },
+          { onConflict: "user_id" }
+        );
+    } catch (habError) {
+      console.error("Habit flag update failed (non-blocking):", habError);
+    }
+
+    return { data: session, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to create exercise session", cause) };
+  }
+}
+
+/**
+ * Updates an existing exercise session.
+ * Handles PR recalculation when distance changes.
+ */
+export async function updateExerciseSession(
+  sessionId: string,
+  updates: Partial<CreateExerciseSessionInput>
+): Promise<SupabaseQueryResult<ExerciseSession>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    // Fetch current session for PR recalculation
+    const { data: currentData } = await client
+      .schema<PublicSchema>("public")
+      .from("exercise_sessions")
+      .select(EXERCISE_SESSION_COLUMNS)
+      .eq("id", sessionId)
+      .single();
+
+    if (!currentData) return { data: null, error: new Error("Session not found") };
+    const current = currentData as unknown as ExerciseSession;
+
+    // Build update payload (exclude laps from DB update)
+    const { laps, ...dbUpdates } = updates;
+    const updateRow: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(dbUpdates)) {
+      if (value !== undefined) {
+        updateRow[key] = value;
+      }
+    }
+
+    const { data: updatedData, error: updateError } = await client
+      .schema<PublicSchema>("public")
+      .from("exercise_sessions")
+      .update(updateRow)
+      .eq("id", sessionId)
+      .select(EXERCISE_SESSION_COLUMNS)
+      .single();
+
+    if (updateError) return { data: null, error: asError("Failed to update exercise session", updateError) };
+    const updated = updatedData as unknown as ExerciseSession;
+
+    // Handle lap updates if provided
+    if (laps !== undefined) {
+      // Delete existing laps and re-insert
+      await client
+        .schema<PublicSchema>("public")
+        .from("run_laps")
+        .delete()
+        .eq("session_id", sessionId);
+
+      if (laps && laps.length > 0) {
+        const lapRows = laps.map((lap) => ({
+          session_id: sessionId,
+          user_id: userId,
+          lap_number: lap.lap_number,
+          distance_metres: lap.distance_metres,
+          duration_seconds: lap.duration_seconds,
+          pace_seconds_per_km: lap.distance_metres > 0
+            ? calculatePace(lap.distance_metres, lap.duration_seconds)
+            : null,
+        }));
+
+        await client
+          .schema<PublicSchema>("public")
+          .from("run_laps")
+          .insert(lapRows);
+      }
+    }
+
+    // PR recalculation if distance or duration changed for runs
+    const distanceChanged = updates.distance_metres !== undefined &&
+      updates.distance_metres !== (current.distance_metres ?? undefined);
+    const durationChanged = updates.duration_seconds !== undefined &&
+      updates.duration_seconds !== current.duration_seconds;
+
+    if (updated.type === "run" && (distanceChanged || durationChanged)) {
+      try {
+        // If the session was previously a PR, we need to recalculate for that bucket
+        if (current.is_pr && current.pr_distance_bucket) {
+          // Un-flag current session first
+          await client
+            .schema<PublicSchema>("public")
+            .from("exercise_sessions")
+            .update({ is_pr: false, pr_distance_bucket: null })
+            .eq("id", sessionId);
+          updated.is_pr = false;
+          updated.pr_distance_bucket = null;
+
+          // Recalculate the old bucket
+          await recalculatePRForBucket(client, userId, current.pr_distance_bucket);
+        }
+
+        // Now check if the updated session qualifies for a PR
+        const newDistance = updated.distance_metres;
+        const newDuration = updated.duration_seconds;
+        if (newDistance) {
+          const result = await detectAndUpdatePR(
+            client, userId, sessionId, newDistance, newDuration, updated.date
+          );
+          if (result.isPR && result.bucket) {
+            await client
+              .schema<PublicSchema>("public")
+              .from("exercise_sessions")
+              .update({ is_pr: true, pr_distance_bucket: result.bucket })
+              .eq("id", sessionId);
+            updated.is_pr = true;
+            updated.pr_distance_bucket = result.bucket;
+          }
+        }
+      } catch (prError) {
+        console.error("PR recalculation failed (non-blocking):", prError);
+      }
+    }
+
+    // Update calendar event if exists (non-blocking)
+    if (updated.calendar_event_id) {
+      try {
+        const distLabel = updated.distance_metres
+          ? `${(updated.distance_metres / 1000).toFixed(2)}km`
+          : "";
+        const durMin = Math.round(updated.duration_seconds / 60);
+        const typeLabel = updated.type === "run" ? "Run" : updated.type === "swim" ? "Swim" : "Exercise";
+        const title = distLabel
+          ? `[${typeLabel}] ${distLabel} - ${durMin}min`
+          : `[${typeLabel}] ${durMin}min`;
+
+        await client
+          .schema<PublicSchema>("public")
+          .from("calendar_events")
+          .update({
+            title,
+            start_time: new Date(updated.date + "T00:00:00").toISOString(),
+            end_time: new Date(updated.date + "T00:00:00").toISOString(),
+          })
+          .eq("id", updated.calendar_event_id);
+      } catch (calError) {
+        console.error("Calendar event update failed (non-blocking):", calError);
+      }
+    }
+
+    return { data: updated, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to update exercise session", cause) };
+  }
+}
+
+/**
+ * Deletes an exercise session. Recalculates PRs if needed.
+ * run_laps cascade-deleted by FK.
+ */
+export async function deleteExerciseSession(
+  sessionId: string
+): Promise<SupabaseQueryResult<{ deleted: true }>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    // Fetch session to check PR status and calendar link
+    const { data: sessionData } = await client
+      .schema<PublicSchema>("public")
+      .from("exercise_sessions")
+      .select("is_pr,pr_distance_bucket,calendar_event_id")
+      .eq("id", sessionId)
+      .single();
+
+    const session = sessionData as { is_pr: boolean; pr_distance_bucket: string | null; calendar_event_id: string | null } | null;
+
+    // Delete the session (cascades run_laps)
+    const { error } = await client
+      .schema<PublicSchema>("public")
+      .from("exercise_sessions")
+      .delete()
+      .eq("id", sessionId);
+
+    if (error) return { data: null, error: asError("Failed to delete exercise session", error) };
+
+    // Recalculate PR if this was a PR session
+    if (session?.is_pr && session.pr_distance_bucket) {
+      try {
+        await recalculatePRForBucket(client, userId, session.pr_distance_bucket as PRDistanceBucket);
+      } catch (prError) {
+        console.error("PR recalculation after delete failed (non-blocking):", prError);
+      }
+    }
+
+    // Delete calendar event if linked (non-blocking)
+    if (session?.calendar_event_id) {
+      try {
+        await client
+          .schema<PublicSchema>("public")
+          .from("calendar_events")
+          .delete()
+          .eq("id", session.calendar_event_id)
+          .eq("user_id", userId);
+      } catch (calError) {
+        console.error("Calendar event deletion failed (non-blocking):", calError);
+      }
+    }
+
+    return { data: { deleted: true }, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to delete exercise session", cause) };
+  }
+}
+
+/**
+ * Fetches personal records with session context (date, route_name).
+ */
+export async function getPersonalRecords(): Promise<SupabaseQueryResult<(PersonalRecord & { session_date: string | null; session_route: string | null })[]>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("personal_records")
+      .select("id,user_id,distance_bucket,best_pace_seconds_per_km,best_session_id,achieved_at,created_at,updated_at,exercise_sessions(date,route_name)")
+      .order("distance_bucket", { ascending: true });
+
+    if (error) return { data: null, error: asError("Failed to fetch personal records", error) };
+
+    const records = (data ?? []).map((row: Record<string, unknown>) => {
+      const sessionInfo = row.exercise_sessions as { date: string; route_name: string | null } | null;
+      return {
+        id: row.id as string,
+        user_id: row.user_id as string,
+        distance_bucket: row.distance_bucket as PRDistanceBucket,
+        best_pace_seconds_per_km: row.best_pace_seconds_per_km as number,
+        best_session_id: row.best_session_id as string | null,
+        achieved_at: row.achieved_at as string,
+        created_at: row.created_at as string,
+        updated_at: row.updated_at as string,
+        session_date: sessionInfo?.date ?? null,
+        session_route: sessionInfo?.route_name ?? null,
+      };
+    });
+
+    return { data: records, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch personal records", cause) };
+  }
+}
+
+// =========================
+// Food log helpers
+// =========================
+
+/**
+ * Fetches food logs for a specific date, ordered by created_at ASC.
+ */
+export async function getFoodLogsForDate(
+  date: string
+): Promise<SupabaseQueryResult<FoodLog[]>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("food_logs")
+      .select("id,user_id,date,meal_slot,food_name,calories,carbs_g,fat_g,protein_g,water_ml,saved_food_id,created_at")
+      .eq("date", date)
+      .order("created_at", { ascending: true });
+
+    if (error) return { data: null, error: asError("Failed to fetch food logs", error) };
+    return { data: data as unknown as FoodLog[], error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch food logs", cause) };
+  }
+}
+
+/**
+ * Creates a food log entry. Increments use_count on saved food if linked.
+ */
+export async function createFoodLog(
+  logData: {
+    date: string;
+    meal_slot: string;
+    food_name: string;
+    calories: number;
+    carbs_g?: number | null;
+    fat_g?: number | null;
+    protein_g?: number | null;
+    water_ml?: number;
+    saved_food_id?: string | null;
+  }
+): Promise<SupabaseQueryResult<FoodLog>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    const row = {
+      user_id: userId,
+      date: logData.date,
+      meal_slot: logData.meal_slot,
+      food_name: logData.food_name,
+      calories: logData.calories,
+      carbs_g: logData.carbs_g ?? null,
+      fat_g: logData.fat_g ?? null,
+      protein_g: logData.protein_g ?? null,
+      water_ml: logData.water_ml ?? 0,
+      saved_food_id: logData.saved_food_id ?? null,
+    };
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("food_logs")
+      .insert(row)
+      .select("*")
+      .single();
+
+    if (error) return { data: null, error: asError("Failed to create food log", error) };
+
+    // Increment use_count on saved food (non-blocking)
+    if (logData.saved_food_id) {
+      try {
+        const { data: sf } = await client
+          .schema<PublicSchema>("public")
+          .from("saved_foods")
+          .select("use_count")
+          .eq("id", logData.saved_food_id)
+          .single();
+        if (sf) {
+          await client
+            .schema<PublicSchema>("public")
+            .from("saved_foods")
+            .update({ use_count: ((sf as { use_count: number }).use_count ?? 0) + 1 })
+            .eq("id", logData.saved_food_id);
+        }
+      } catch {
+        // Non-blocking — use_count miss is acceptable
+      }
+    }
+
+    return { data: data as unknown as FoodLog, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to create food log", cause) };
+  }
+}
+
+/**
+ * Deletes a food log entry by ID.
+ */
+export async function deleteFoodLog(
+  logId: string
+): Promise<SupabaseQueryResult<{ deleted: true }>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    const { error } = await client
+      .schema<PublicSchema>("public")
+      .from("food_logs")
+      .delete()
+      .eq("id", logId);
+
+    if (error) return { data: null, error: asError("Failed to delete food log", error) };
+    return { data: { deleted: true }, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to delete food log", cause) };
+  }
+}
+
+// =========================
+// Saved food helpers
+// =========================
+
+/**
+ * Fetches saved foods, ordered by use_count DESC then food_name ASC.
+ */
+export async function getSavedFoods(): Promise<SupabaseQueryResult<SavedFood[]>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("saved_foods")
+      .select("*")
+      .order("use_count", { ascending: false })
+      .order("food_name", { ascending: true });
+
+    if (error) return { data: null, error: asError("Failed to fetch saved foods", error) };
+    return { data: data as unknown as SavedFood[], error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch saved foods", cause) };
+  }
+}
+
+/**
+ * Creates a saved food entry.
+ */
+export async function createSavedFood(
+  foodData: {
+    food_name: string;
+    calories: number;
+    carbs_g?: number | null;
+    fat_g?: number | null;
+    protein_g?: number | null;
+  }
+): Promise<SupabaseQueryResult<SavedFood>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    const row = {
+      user_id: userId,
+      food_name: foodData.food_name,
+      calories: foodData.calories,
+      carbs_g: foodData.carbs_g ?? null,
+      fat_g: foodData.fat_g ?? null,
+      protein_g: foodData.protein_g ?? null,
+    };
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("saved_foods")
+      .insert(row)
+      .select("*")
+      .single();
+
+    if (error) return { data: null, error: asError("Failed to create saved food", error) };
+    return { data: data as unknown as SavedFood, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to create saved food", cause) };
+  }
+}
+
+/**
+ * Updates a saved food entry.
+ */
+export async function updateSavedFood(
+  foodId: string,
+  updates: Partial<{ food_name: string; calories: number; carbs_g: number | null; fat_g: number | null; protein_g: number | null }>
+): Promise<SupabaseQueryResult<SavedFood>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("saved_foods")
+      .update(updates)
+      .eq("id", foodId)
+      .select("*")
+      .single();
+
+    if (error) return { data: null, error: asError("Failed to update saved food", error) };
+    return { data: data as unknown as SavedFood, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to update saved food", cause) };
+  }
+}
+
+/**
+ * Deletes a saved food entry.
+ */
+export async function deleteSavedFood(
+  foodId: string
+): Promise<SupabaseQueryResult<{ deleted: true }>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    const { error } = await client
+      .schema<PublicSchema>("public")
+      .from("saved_foods")
+      .delete()
+      .eq("id", foodId);
+
+    if (error) return { data: null, error: asError("Failed to delete saved food", error) };
+    return { data: { deleted: true }, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to delete saved food", cause) };
+  }
+}
+
+// =========================
+// Body metrics helpers
+// =========================
+
+/**
+ * Upserts a body metric entry (one per user+date).
+ */
+export async function upsertBodyMetric(
+  data: { date: string; weight_kg?: number | null; notes?: string | null }
+): Promise<SupabaseQueryResult<BodyMetric>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    const { data: result, error } = await client
+      .schema<PublicSchema>("public")
+      .from("body_metrics")
+      .upsert(
+        { user_id: userId, date: data.date, weight_kg: data.weight_kg ?? null, notes: data.notes ?? null },
+        { onConflict: "user_id,date" }
+      )
+      .select("*")
+      .single();
+
+    if (error) return { data: null, error: asError("Failed to upsert body metric", error) };
+    return { data: result as unknown as BodyMetric, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to upsert body metric", cause) };
+  }
+}
+
+/**
+ * Fetches body metrics for a date range (for weight trend chart).
+ */
+export async function getBodyMetrics(
+  filters?: { from?: string; to?: string; limit?: number }
+): Promise<SupabaseQueryResult<BodyMetric[]>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    let query = client
+      .schema<PublicSchema>("public")
+      .from("body_metrics")
+      .select("*")
+      .order("date", { ascending: false });
+
+    if (filters?.from) query = query.gte("date", filters.from);
+    if (filters?.to) query = query.lte("date", filters.to);
+    if (filters?.limit) query = query.limit(filters.limit);
+
+    const { data, error } = await query;
+    if (error) return { data: null, error: asError("Failed to fetch body metrics", error) };
+    return { data: data as unknown as BodyMetric[], error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch body metrics", cause) };
+  }
+}
+
+// =========================
+// Daily nutrition aggregation
+// =========================
+
+/**
+ * Calculates daily nutrition summary for a given date.
+ * Dynamic aggregation — no materialized view.
+ */
+export async function calculateDailyNutrition(
+  date: string
+): Promise<SupabaseQueryResult<DailyNutritionSummary>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    // 1. Get food logs for the date
+    const { data: logs, error: logsError } = await client
+      .schema<PublicSchema>("public")
+      .from("food_logs")
+      .select("calories,carbs_g,fat_g,protein_g,water_ml")
+      .eq("date", date);
+
+    if (logsError) return { data: null, error: asError("Failed to fetch food logs for nutrition", logsError) };
+
+    const foodLogs = (logs ?? []) as { calories: number; carbs_g: number | null; fat_g: number | null; protein_g: number | null; water_ml: number }[];
+    const total_calories = foodLogs.reduce((s, l) => s + l.calories, 0);
+    const total_carbs_g = foodLogs.reduce((s, l) => s + (l.carbs_g ?? 0), 0);
+    const total_fat_g = foodLogs.reduce((s, l) => s + (l.fat_g ?? 0), 0);
+    const total_protein_g = foodLogs.reduce((s, l) => s + (l.protein_g ?? 0), 0);
+    const total_water_ml = foodLogs.reduce((s, l) => s + (l.water_ml ?? 0), 0);
+
+    // 2. Get calorie goal from user preferences
+    const { data: prefs } = await client
+      .schema<PublicSchema>("public")
+      .from("user_preferences")
+      .select("daily_calorie_goal")
+      .maybeSingle();
+
+    const calorie_goal = (prefs as { daily_calorie_goal: number | null } | null)?.daily_calorie_goal ?? 2000;
+
+    // 3. Get exercise calories burned for the date
+    const { data: exerciseLogs, error: exError } = await client
+      .schema<PublicSchema>("public")
+      .from("exercise_sessions")
+      .select("calories_burned")
+      .eq("date", date);
+
+    if (exError) return { data: null, error: asError("Failed to fetch exercise sessions for nutrition", exError) };
+
+    const calories_burned = (exerciseLogs ?? []).reduce(
+      (s, e) => s + ((e as { calories_burned: number | null }).calories_burned ?? 0),
+      0
+    );
+
+    const summary: DailyNutritionSummary = {
+      date,
+      total_calories,
+      total_carbs_g,
+      total_fat_g,
+      total_protein_g,
+      total_water_ml,
+      calorie_goal,
+      calories_burned,
+      net_calories: total_calories - calories_burned,
+    };
+
+    return { data: summary, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to calculate daily nutrition", cause) };
+  }
+}
