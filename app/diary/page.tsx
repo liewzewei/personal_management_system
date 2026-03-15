@@ -12,6 +12,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { DiaryList } from "@/components/diary/DiaryList";
 import { Button } from "@/components/ui/button";
+import { MobileHeader } from "@/components/MobileHeader";
+import { SidebarToggle } from "@/components/SidebarToggle";
+import { useSidebarState } from "@/lib/hooks/useSidebarState";
 
 const DiaryEditor = dynamic(
   () => import("@/components/diary/DiaryEditor").then((m) => m.DiaryEditor),
@@ -19,6 +22,7 @@ const DiaryEditor = dynamic(
 );
 import { useToast } from "@/lib/hooks/use-toast";
 import { PenLine } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useDiaryEntries, useDiaryMutation } from "@/lib/hooks/useDiaryEntries";
 import { useTags } from "@/lib/hooks/useTags";
 import { useQueryClient } from "@tanstack/react-query";
@@ -27,6 +31,7 @@ import type { DiaryEntry } from "@/types";
 export default function DiaryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const entrySidebar = useSidebarState("diary-entries", true);
   const [activeEntry, setActiveEntry] = useState<DiaryEntry | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -134,46 +139,91 @@ export default function DiaryPage() {
   };
 
   return (
-    <div className="flex h-screen">
-      {/* Sidebar — hidden on mobile when editor is shown */}
-      <div className={`w-full border-r md:block md:w-[300px] md:shrink-0 ${mobileShowEditor ? "hidden" : "block"}`}>
-        <DiaryList
-          entries={entries}
-          activeEntryId={activeEntry?.id ?? null}
-          allTags={allTags}
-          selectedTags={selectedTags}
-          searchQuery={searchQuery}
-          onSelectEntry={loadEntry}
-          onNewEntry={handleNewEntry}
-          onDeleteEntry={handleDeleteEntry}
-          onDuplicateEntry={handleDuplicateEntry}
-          onSearchChange={setSearchQuery}
-          onTagToggle={handleTagToggle}
-          onLoadMore={hasNextPage ? fetchNextPage : undefined}
-          isLoadingMore={isFetchingNextPage}
-        />
-      </div>
-
-      {/* Editor panel — hidden on mobile when list is shown */}
-      <div className={`flex-1 ${mobileShowEditor ? "block" : "hidden md:block"}`}>
-        {activeEntry ? (
-          <DiaryEditor
-            entry={activeEntry}
-            allTags={allTags}
-            onSaved={handleEntrySaved}
-            onBack={() => setMobileShowEditor(false)}
-          />
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
-            <PenLine className="h-12 w-12 text-muted-foreground/50" />
-            <div>
-              <p className="text-sm text-muted-foreground">
-                Start writing. Your thoughts are safe here.
-              </p>
+    <div className="flex flex-col h-full">
+      <MobileHeader
+        title="Diary"
+        actions={
+          <>
+            {/* Desktop: sidebar toggle */}
+            <div className="hidden md:flex">
+              <SidebarToggle
+                isOpen={entrySidebar.isOpen}
+                onToggle={entrySidebar.toggle}
+                label="Toggle entry list"
+              />
             </div>
-            <Button onClick={handleNewEntry}>New Entry</Button>
-          </div>
-        )}
+            {/* Mobile: back button when editor is shown */}
+            {mobileShowEditor && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="md:hidden"
+                onClick={() => setMobileShowEditor(false)}
+              >
+                ← Entries
+              </Button>
+            )}
+            <Button size="sm" onClick={handleNewEntry}>
+              <PenLine className="h-4 w-4" />
+              <span className="hidden sm:inline ml-1">New Entry</span>
+            </Button>
+          </>
+        }
+      />
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Entry list sidebar */}
+        <div
+          className={cn(
+            "flex flex-col border-r overflow-y-auto",
+            "w-full md:w-[300px] md:shrink-0",
+            mobileShowEditor ? "hidden md:flex" : "flex",
+            !entrySidebar.isOpen && "md:hidden"
+          )}
+        >
+          <DiaryList
+            entries={entries}
+            activeEntryId={activeEntry?.id ?? null}
+            allTags={allTags}
+            selectedTags={selectedTags}
+            searchQuery={searchQuery}
+            onSelectEntry={loadEntry}
+            onNewEntry={handleNewEntry}
+            onDeleteEntry={handleDeleteEntry}
+            onDuplicateEntry={handleDuplicateEntry}
+            onSearchChange={setSearchQuery}
+            onTagToggle={handleTagToggle}
+            onLoadMore={hasNextPage ? fetchNextPage : undefined}
+            isLoadingMore={isFetchingNextPage}
+          />
+        </div>
+
+        {/* Editor panel */}
+        <div
+          className={cn(
+            "flex-1 overflow-hidden flex flex-col",
+            !mobileShowEditor ? "hidden md:flex" : "flex"
+          )}
+        >
+          {activeEntry ? (
+            <DiaryEditor
+              entry={activeEntry}
+              allTags={allTags}
+              onSaved={handleEntrySaved}
+              onBack={() => setMobileShowEditor(false)}
+            />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+              <PenLine className="h-12 w-12 text-muted-foreground/50" />
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Start writing. Your thoughts are safe here.
+                </p>
+              </div>
+              <Button onClick={handleNewEntry}>New Entry</Button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -83,7 +83,7 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
     content: mounted ? (entry.content ?? "") : "",
     editorProps: {
       attributes: {
-        class: "prose prose-sm max-w-none focus:outline-none min-h-[300px] px-1",
+        class: "prose prose-sm max-w-none focus:outline-hidden min-h-[300px] px-1",
       },
     },
     onUpdate: () => {
@@ -185,7 +185,7 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
   useEffect(() => {
     const handleBlur = () => doSave();
     window.addEventListener("blur", handleBlur);
-    return () => window.removeEventListener("blur", handleBlur);
+    return () => window.removeEventListener("blur-sm", handleBlur);
   }, [doSave]);
 
   // Ctrl+S

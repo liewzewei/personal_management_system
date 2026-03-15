@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MobileHeader } from "@/components/MobileHeader";
 import type { DistanceUnit, UserPreferences } from "@/types";
 
 const RunningTab = dynamic(
@@ -82,20 +83,17 @@ export default function ExercisePage() {
   }, []);
 
   return (
-    <div className="flex h-screen flex-col">
-      {/* Header */}
-      <header className="border-b bg-card px-6 py-4">
-        <h1 className="text-xl font-semibold">Exercise</h1>
-      </header>
+    <div className="flex h-full flex-col">
+      <MobileHeader title="Exercise" />
 
-      {/* Tab Navigation */}
-      <div className="border-b bg-card px-6">
-        <nav className="flex gap-0">
+      {/* Tab Navigation — scrollable on mobile */}
+      <div className="border-b bg-card overflow-x-auto scrollbar-none shrink-0">
+        <nav className="flex gap-0 px-4 md:px-6">
           {TABS.map((tab) => (
             <button
               key={tab.key}
               className={cn(
-                "px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px",
+                "px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px shrink-0",
                 activeTab === tab.key
                   ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
@@ -109,7 +107,7 @@ export default function ExercisePage() {
       </div>
 
       {/* Tab Content */}
-      <main className="flex-1 overflow-y-auto p-6">
+      <main className="flex-1 overflow-y-auto p-4 md:p-6">
         {activeTab === "running" && (
           <RunningTab distanceUnit={distanceUnit} weightKg={weightKg} />
         )}

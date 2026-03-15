@@ -16,6 +16,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Search, Loader2, Archive } from "lucide-react";
+import { MobileHeader } from "@/components/MobileHeader";
+import { SidebarToggle } from "@/components/SidebarToggle";
+import { useSidebarState } from "@/lib/hooks/useSidebarState";
 import {
   DndContext,
   DragOverlay,
@@ -84,7 +87,9 @@ function DroppableColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        "flex flex-col min-w-0 flex-1 rounded-lg bg-muted/40 border",
+        "flex flex-col rounded-lg bg-muted/40 border",
+        "w-full md:flex-1 md:min-w-0",
+        "md:h-full",
         highlighted && "border-dashed border-primary bg-primary/5"
       )}
     >
@@ -95,7 +100,7 @@ function DroppableColumn({
         </Badge>
       </div>
       <div
-        className="flex-1 overflow-y-auto p-3 space-y-2"
+        className="md:flex-1 overflow-y-auto p-3 space-y-2 min-h-[100px]"
         style={{ overscrollBehavior: 'contain' }}
       >
         {children}
@@ -105,6 +110,9 @@ function DroppableColumn({
 }
 
 export default function TasksPage() {
+  // Feature sidebar state (persisted to localStorage)
+  const tagSidebar = useSidebarState("tasks-tags", true);
+
   // Filters
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -577,90 +585,127 @@ export default function TasksPage() {
   };
 
   return (
-    <div className="flex h-screen">
-      {/* Left Sidebar */}
-      <aside className="w-[220px] shrink-0 border-r bg-card">
-        <ScrollArea className="h-full">
-          <div className="p-4 space-y-1">
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-2">
-              Tags
-            </h2>
-            <button
-              className={cn(
-                "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
-                activeTag === null
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-accent"
-              )}
-              onClick={() => setActiveTag(null)}
-            >
-              <span>All Tasks</span>
-              <span className="text-xs opacity-70">
-                {tagCounts?.["All Tasks"] ?? 0}
-              </span>
-            </button>
+    <div className="flex flex-col h-full">
+      {/* Mobile header with sidebar toggle */}
+      <MobileHeader
+        title="Tasks"
+        actions={
+          <>
+            <div className="hidden md:flex">
+              <SidebarToggle
+                isOpen={tagSidebar.isOpen}
+                onToggle={tagSidebar.toggle}
+                label="Toggle tag filters"
+              />
+            </div>
+            <Button size="sm" onClick={openNewTaskModal}>
+              <Plus className="h-4 w-4 mr-1" /> New Task
+            </Button>
+          </>
+        }
+      />
 
-            {allTags.map((tag) => (
-              <button
-                key={tag}
-                className={cn(
-                  "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
-                  activeTag === tag
-                    ? "bg-primary text-primary-foreground"
-                    : "hover:bg-accent"
-                )}
-                onClick={() => setActiveTag(tag)}
-              >
-                <span className="truncate">{tag}</span>
-                <span className="text-xs opacity-70">{tagCounts?.[tag] ?? 0}</span>
-              </button>
-            ))}
+      {/* Top Bar — search + sort */}
+      <header className="border-b bg-card px-4 md:px-6 py-3 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search tasks..."
+              className="pl-9 h-9 text-base sm:text-sm"
+            />
           </div>
-        </ScrollArea>
-      </aside>
+          <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+            <SelectTrigger className="w-[130px] md:w-[150px] h-9">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="created_at">Created Date</SelectItem>
+              <SelectItem value="deadline">Due Date</SelectItem>
+              <SelectItem value="priority">Priority</SelectItem>
+              <SelectItem value="title">Alphabetical</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </header>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Tag filter sidebar — hidden on mobile, collapsible on desktop */}
+        {tagSidebar.isOpen && (
+          <aside className="hidden md:flex flex-col border-r bg-card w-[220px] shrink-0">
+            <ScrollArea className="h-full">
+              <div className="p-4 space-y-1">
+                <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-2">
+                  Tags
+                </h2>
+                <button
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                    activeTag === null
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-accent"
+                  )}
+                  onClick={() => setActiveTag(null)}
+                >
+                  <span>All Tasks</span>
+                  <span className="text-xs opacity-70">
+                    {tagCounts?.["All Tasks"] ?? 0}
+                  </span>
+                </button>
+
+                {allTags.map((tag) => (
+                  <button
+                    key={tag}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                      activeTag === tag
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-accent"
+                    )}
+                    onClick={() => setActiveTag(tag)}
+                  >
+                    <span className="truncate">{tag}</span>
+                    <span className="text-xs opacity-70">{tagCounts?.[tag] ?? 0}</span>
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+          </aside>
+        )}
+
+        {/* Mobile: tag filters as a horizontal scrollable chip row */}
+        <div className="md:hidden flex gap-2 overflow-x-auto px-4 py-2 border-b shrink-0 scrollbar-none absolute left-0 right-0 bg-card z-5" style={{ top: "auto" }}>
+          <button
+            onClick={() => setActiveTag(null)}
+            className={cn(
+              "shrink-0 px-3 py-1 rounded-full text-sm border",
+              !activeTag && "bg-primary text-primary-foreground border-primary"
+            )}
+          >
+            All
+          </button>
+          {allTags.map((tag) => (
+            <button
+              key={tag}
+              onClick={() => setActiveTag(tag)}
+              className={cn(
+                "shrink-0 px-3 py-1 rounded-full text-sm border",
+                activeTag === tag && "bg-primary text-primary-foreground border-primary"
+              )}
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
-        {/* Top Bar */}
-        <header className="border-b bg-card px-6 py-4">
-          <div className="flex items-center justify-between gap-4">
-            <h1 className="text-xl font-semibold shrink-0">Tasks</h1>
-            <div className="flex items-center gap-3 flex-1 justify-end">
-              {/* Search */}
-              <div className="relative max-w-xs flex-1">
-                <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search tasks..."
-                  className="pl-9 h-9"
-                />
-              </div>
-
-              {/* Sort */}
-              <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
-                <SelectTrigger className="w-[150px] h-9">
-                  <SelectValue placeholder="Sort by" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="created_at">Created Date</SelectItem>
-                  <SelectItem value="deadline">Due Date</SelectItem>
-                  <SelectItem value="priority">Priority</SelectItem>
-                  <SelectItem value="title">Alphabetical</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* New Task */}
-              <Button size="sm" onClick={openNewTaskModal}>
-                <Plus className="mr-1.5 h-4 w-4" />
-                New Task
-              </Button>
-            </div>
-          </div>
-        </header>
+        <div className="md:hidden h-10" /> {/* Spacer for mobile chip row */}
 
         {/* Kanban Board */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden md:overflow-hidden overflow-y-auto">
           {loading && (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -683,7 +728,7 @@ export default function TasksPage() {
               onDragEnd={handleDragEnd}
               onDragCancel={handleDragCancel}
             >
-              <div className="flex gap-4 h-full p-4">
+              <div className="flex flex-col md:flex-row gap-4 h-full md:h-full overflow-y-auto md:overflow-y-hidden overflow-x-hidden md:overflow-x-auto p-4">
                 {/* To Do Column */}
                 <DroppableColumn
                   id="todo-column"
@@ -799,6 +844,7 @@ export default function TasksPage() {
           )}
         </div>
       </main>
+      </div> {/* end flex row: sidebar + main */}
 
       {/* Task Modal */}
       <TaskModal

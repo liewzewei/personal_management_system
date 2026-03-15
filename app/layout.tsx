@@ -5,12 +5,17 @@
  * - Defines global document structure and metadata.
  * - Loads global styles.
  * - Mounts the Toaster for toast notifications.
- * - Renders the sidebar navigation alongside page content.
+ * - Wraps app in SidebarProvider (cookie-persisted sidebar state).
+ * - Renders collapsible AppSidebar + mobile BottomNav.
  */
 
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { cookies } from "next/headers";
 import { Toaster } from "@/components/ui/toaster";
-import { SidebarNav } from "@/components/SidebarNav";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/AppSidebar";
+import { BottomNav } from "@/components/BottomNav";
 import { QueryProvider } from "@/components/QueryProvider";
 import "./globals.css";
 import { Geist } from "next/font/google";
@@ -23,19 +28,33 @@ export const metadata: Metadata = {
   description: "A single-user personal productivity system.",
 };
 
-export default function RootLayout({
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+};
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cookieStore = await cookies();
+  const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
+
   return (
     <html lang="en" className={cn("font-sans", geist.variable)}>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <QueryProvider>
-          <div className="flex h-screen overflow-hidden">
-            <SidebarNav />
-            <main className="flex-1 overflow-y-auto">{children}</main>
-          </div>
+          <TooltipProvider>
+            <SidebarProvider defaultOpen={defaultOpen}>
+              <AppSidebar />
+              <main className="flex-1 overflow-y-auto min-w-0 pb-16 md:pb-0 transition-all duration-200 ease-linear">
+                {children}
+              </main>
+              <BottomNav />
+            </SidebarProvider>
+          </TooltipProvider>
           <Toaster />
         </QueryProvider>
       </body>

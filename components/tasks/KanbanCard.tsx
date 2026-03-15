@@ -157,7 +157,7 @@ export function KanbanCard({
   const cardContent = (
     <div
       className={cn(
-        "group relative rounded-lg border bg-card p-3 transition-colors hover:bg-accent/50",
+        "group relative rounded-lg border bg-card p-3 min-h-[44px] transition-colors hover:bg-accent/50 active:opacity-80",
         column === "todo" ? "pl-6 cursor-default" : "cursor-pointer",
         overdue && "border-l-4 border-l-red-500"
       )}

@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MobileHeader } from "@/components/MobileHeader";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/lib/hooks/use-toast";
@@ -240,8 +241,10 @@ export default function SettingsPage() {
   const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   return (
-    <main className="mx-auto max-w-3xl p-6 space-y-8">
-      <h1 className="text-2xl font-semibold">Settings</h1>
+    <div className="flex flex-col h-full">
+      <MobileHeader title="Settings" />
+      <main className="flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-8 w-full">
 
       {/* ============================== */}
       {/* Section 1: Outlook Calendar Feeds */}
@@ -381,6 +384,7 @@ export default function SettingsPage() {
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
                   placeholder="e.g. NUS Lectures, Personal, Birthdays"
+                  className="text-base sm:text-sm"
                 />
               </div>
 
@@ -391,6 +395,7 @@ export default function SettingsPage() {
                   value={formUrl}
                   onChange={(e) => setFormUrl(e.target.value)}
                   placeholder="https://outlook.office365.com/owa/calendar/..."
+                  className="text-base sm:text-sm"
                 />
               </div>
 
@@ -401,6 +406,7 @@ export default function SettingsPage() {
                   value={formType}
                   onChange={(e) => setFormType(e.target.value.toUpperCase())}
                   placeholder="e.g. LECTURES, PERSONAL, BIRTHDAYS"
+                  className="text-base sm:text-sm"
                 />
                 <p className="text-xs text-muted-foreground">
                   This becomes the calendar type tag on all imported events.
@@ -473,7 +479,7 @@ export default function SettingsPage() {
               id="default-view"
               value={defaultView}
               onChange={(e) => setDefaultView(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
             >
               <option value="dayGridMonth">Month</option>
               <option value="timeGridWeek">Week</option>
@@ -487,7 +493,7 @@ export default function SettingsPage() {
               id="week-start"
               value={weekStartsOn}
               onChange={(e) => setWeekStartsOn(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
             >
               <option value="monday">Monday</option>
               <option value="sunday">Sunday</option>
@@ -508,6 +514,8 @@ export default function SettingsPage() {
           </Button>
         </div>
       </section>
+    </div>
     </main>
+    </div>
   );
 }

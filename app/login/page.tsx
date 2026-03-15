@@ -87,7 +87,7 @@ export default function LoginPage() {
             required
             autoComplete="email"
             inputMode="email"
-            className="h-10 rounded-md border border-black/10 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-black/20 dark:border-white/15 dark:bg-black"
+            className="h-10 rounded-md border border-black/10 bg-white px-3 text-sm outline-hidden focus:ring-2 focus:ring-black/20 dark:border-white/15 dark:bg-black"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={isDisabled}
@@ -100,7 +100,7 @@ export default function LoginPage() {
             type="password"
             required
             autoComplete="current-password"
-            className="h-10 rounded-md border border-black/10 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-black/20 dark:border-white/15 dark:bg-black"
+            className="h-10 rounded-md border border-black/10 bg-white px-3 text-sm outline-hidden focus:ring-2 focus:ring-black/20 dark:border-white/15 dark:bg-black"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={isDisabled}

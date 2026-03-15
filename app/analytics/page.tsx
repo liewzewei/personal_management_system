@@ -14,6 +14,7 @@ import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MobileHeader } from "@/components/MobileHeader";
 import { useAnalytics } from "@/lib/hooks/useAnalytics";
 
 const ChartSkeleton = () => (
@@ -77,28 +78,28 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div className="min-h-screen">
-      {/* Sticky header */}
-      <div className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <h1 className="text-xl font-semibold">Analytics</h1>
-          <div className="flex gap-1">
-            {RANGE_OPTIONS.map((opt) => (
-              <Button
-                key={opt.value}
-                variant={range === opt.value ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleRangeChange(opt.value)}
-              >
-                {opt.label}
-              </Button>
-            ))}
-          </div>
+    <div className="flex flex-col h-full">
+      <MobileHeader title="Analytics" />
+
+      {/* Date range selector — horizontal scroll on mobile */}
+      <div className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur-sm supports-backdrop-filter:bg-background/60 shrink-0 overflow-x-auto scrollbar-none">
+        <div className="flex gap-1 p-3 px-4 md:px-6 min-w-max">
+          {RANGE_OPTIONS.map((opt) => (
+            <Button
+              key={opt.value}
+              variant={range === opt.value ? "default" : "outline"}
+              size="sm"
+              onClick={() => handleRangeChange(opt.value)}
+            >
+              {opt.label}
+            </Button>
+          ))}
         </div>
       </div>
 
       {/* Content */}
-      <div className="mx-auto max-w-6xl px-6 py-6">
+      <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-6xl px-4 md:px-6 py-4 md:py-6">
         {loading ? (
           <div className="flex flex-col items-center justify-center gap-3 py-24">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -151,6 +152,7 @@ export default function AnalyticsPage() {
             Complete your first task to see analytics.
           </div>
         )}
+      </div>
       </div>
     </div>
   );

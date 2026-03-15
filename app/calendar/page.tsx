@@ -17,11 +17,20 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { DateSelectArg, EventClickArg, DatesSetArg, EventInput } from "@fullcalendar/core";
-import { RefreshCw, Check, AlertTriangle, Settings, ChevronLeft, ChevronRight } from "lucide-react";
+import { RefreshCw, Check, AlertTriangle, Settings, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { EventModal, type EventFormData } from "@/components/calendar/EventModal";
+import { MobileHeader } from "@/components/MobileHeader";
+import { SidebarToggle } from "@/components/SidebarToggle";
+import { useSidebarState } from "@/lib/hooks/useSidebarState";
 import { useCalendarEvents } from "@/lib/hooks/useCalendarEvents";
 import { useToast } from "@/lib/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -61,6 +70,10 @@ export default function CalendarPage() {
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [defaultStart, setDefaultStart] = useState<string | null>(null);
   const [defaultAllDay, setDefaultAllDay] = useState(false);
+
+  // Feature sidebar state
+  const filterSidebar = useSidebarState("calendar-filters", true);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
 
   // User preferences
   const [defaultView, setDefaultView] = useState("dayGridMonth");
@@ -266,156 +279,203 @@ export default function CalendarPage() {
   const hasFeeds = feeds.length > 0;
   const hasNeverSynced = feeds.some((f) => !f.last_synced_at);
 
-  return (
-    <div className="flex h-screen">
-      {/* Left Sidebar */}
-      <aside className="w-[240px] shrink-0 border-r bg-card">
-        <ScrollArea className="h-full">
-          <div className="p-4 space-y-5">
-            {/* Navigation */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Button variant="outline" size="sm" onClick={goToday}>
-                  Today
-                </Button>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={goPrev}>
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={goNext}>
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
+  const filterContent = (
+    <div className="p-4 space-y-5">
+      {/* Navigation */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Button variant="outline" size="sm" onClick={goToday}>
+            Today
+          </Button>
+          <div className="flex gap-1">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={goPrev}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={goNext}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
 
-            {/* Sync section */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Outlook Sync
-              </h3>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full justify-start"
-                onClick={triggerSync}
-                disabled={syncing || !hasFeeds}
-              >
-                {syncing ? (
-                  <>
-                    <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
-                    Syncing...
-                  </>
-                ) : syncedJustNow ? (
-                  <>
-                    <Check className="mr-2 h-3.5 w-3.5 text-green-600" />
-                    Synced just now
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="mr-2 h-3.5 w-3.5" />
-                    Sync Outlook
-                  </>
-                )}
-              </Button>
-              {!hasFeeds && (
-                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                  <div className="text-xs text-amber-800">
-                    No Outlook feeds connected.{" "}
-                    <a href="/settings#outlook" className="underline font-medium">
-                      Add one in Settings
-                    </a>
-                  </div>
-                </div>
-              )}
-              {hasFeeds && hasNeverSynced && (
-                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                  <p className="text-xs text-amber-800">
-                    Some feeds have never been synced. Click Sync Outlook above.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Calendar type filters */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                My Calendars
-              </h3>
-              <div className="space-y-1">
-                {calendarTypes.map((type) => {
-                  const color = getTypeColor(type, feeds);
-                  const isHidden = hiddenTypes.has(type);
-                  const count = typeCounts[type] ?? 0;
-                  return (
-                    <button
-                      key={type}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
-                      onClick={() => toggleType(type)}
-                    >
-                      <div
-                        className={cn(
-                          "h-3 w-3 rounded-sm border transition-colors",
-                          isHidden ? "bg-transparent" : ""
-                        )}
-                        style={{
-                          borderColor: color,
-                          backgroundColor: isHidden ? "transparent" : color,
-                        }}
-                      />
-                      <span className={cn("flex-1 text-left truncate", isHidden && "text-muted-foreground line-through")}>
-                        {type}
-                      </span>
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                        {count}
-                      </Badge>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Settings link */}
-            <div className="pt-2 border-t">
-              <a
-                href="/settings#outlook"
-                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Settings className="h-3.5 w-3.5" />
-                Add Outlook Feed
+      {/* Sync section */}
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Outlook Sync
+        </h3>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-start"
+          onClick={triggerSync}
+          disabled={syncing || !hasFeeds}
+        >
+          {syncing ? (
+            <>
+              <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
+              Syncing...
+            </>
+          ) : syncedJustNow ? (
+            <>
+              <Check className="mr-2 h-3.5 w-3.5 text-green-600" />
+              Synced just now
+            </>
+          ) : (
+            <>
+              <RefreshCw className="mr-2 h-3.5 w-3.5" />
+              Sync Outlook
+            </>
+          )}
+        </Button>
+        {!hasFeeds && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <div className="text-xs text-amber-800">
+              No Outlook feeds connected.{" "}
+              <a href="/settings#outlook" className="underline font-medium">
+                Add one in Settings
               </a>
             </div>
           </div>
-        </ScrollArea>
-      </aside>
+        )}
+        {hasFeeds && hasNeverSynced && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <p className="text-xs text-amber-800">
+              Some feeds have never been synced. Click Sync Outlook above.
+            </p>
+          </div>
+        )}
+      </div>
 
-      {/* Main Calendar */}
-      <main className="flex-1 p-4 overflow-hidden">
-        <FullCalendar
-          ref={calendarRef}
-          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-          initialView={defaultView}
-          firstDay={weekStartsOn}
-          headerToolbar={{
-            left: "prev,next today",
-            center: "title",
-            right: "dayGridMonth,timeGridWeek,timeGridDay",
-          }}
-          events={fcEvents}
-          editable={false}
-          selectable={true}
-          selectMirror={true}
-          dayMaxEvents={true}
-          datesSet={handleDatesSet}
-          eventClick={handleEventClick}
-          select={handleDateSelect}
-          height="100%"
-          eventDisplay="block"
-          nowIndicator={true}
-        />
-      </main>
+      {/* Calendar type filters */}
+      <div className="space-y-2">
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          My Calendars
+        </h3>
+        <div className="space-y-1">
+          {calendarTypes.map((type) => {
+            const color = getTypeColor(type, feeds);
+            const isHidden = hiddenTypes.has(type);
+            const count = typeCounts[type] ?? 0;
+            return (
+              <button
+                key={type}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                onClick={() => toggleType(type)}
+              >
+                <div
+                  className={cn(
+                    "h-3 w-3 rounded-sm border transition-colors",
+                    isHidden ? "bg-transparent" : ""
+                  )}
+                  style={{
+                    borderColor: color,
+                    backgroundColor: isHidden ? "transparent" : color,
+                  }}
+                />
+                <span className={cn("flex-1 text-left truncate", isHidden && "text-muted-foreground line-through")}>
+                  {type}
+                </span>
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                  {count}
+                </Badge>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Settings link */}
+      <div className="pt-2 border-t">
+        <a
+          href="/settings#outlook"
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Settings className="h-3.5 w-3.5" />
+          Add Outlook Feed
+        </a>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col h-full">
+      <MobileHeader
+        title="Calendar"
+        actions={
+          <div className="hidden md:flex">
+            <SidebarToggle
+              isOpen={filterSidebar.isOpen}
+              onToggle={filterSidebar.toggle}
+              label="Toggle calendar filters"
+            />
+          </div>
+        }
+      />
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Filter sidebar — desktop only, collapsible */}
+        {filterSidebar.isOpen && (
+          <aside className="hidden md:flex flex-col border-r bg-card w-[240px] shrink-0">
+            <ScrollArea className="h-full">
+              {filterContent}
+            </ScrollArea>
+          </aside>
+        )}
+
+        {/* Calendar main area */}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {/* Mobile: filter sheet trigger */}
+          <div className="md:hidden flex items-center gap-2 px-4 py-2 border-b shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFilterSheetOpen(true)}
+            >
+              <Filter className="h-4 w-4 mr-1" /> Filters
+            </Button>
+          </div>
+
+          {/* FullCalendar */}
+          <div className="flex-1 p-2 md:p-4 overflow-hidden [&_.fc]:h-full [&_.fc-toolbar]:flex-wrap [&_.fc-toolbar-title]:text-sm [&_.fc-button]:text-xs [&_.fc-button]:px-2 md:[&_.fc-toolbar-title]:text-lg md:[&_.fc-button]:text-sm md:[&_.fc-button]:px-2.5">
+            <FullCalendar
+              ref={calendarRef}
+              plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+              initialView={defaultView}
+              firstDay={weekStartsOn}
+              headerToolbar={{
+                left: "prev,next today",
+                center: "title",
+                right: "dayGridMonth,timeGridWeek,timeGridDay",
+              }}
+              events={fcEvents}
+              editable={false}
+              selectable={true}
+              selectMirror={true}
+              dayMaxEvents={true}
+              datesSet={handleDatesSet}
+              eventClick={handleEventClick}
+              select={handleDateSelect}
+              height="100%"
+              eventDisplay="block"
+              nowIndicator={true}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile filter sheet */}
+      <Sheet open={filterSheetOpen} onOpenChange={setFilterSheetOpen}>
+        <SheetContent side="left" className="w-[280px] p-0">
+          <SheetHeader className="p-4 pb-0">
+            <SheetTitle>Calendar Filters</SheetTitle>
+          </SheetHeader>
+          <ScrollArea className="h-full">
+            {filterContent}
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
 
       {/* Event Modal */}
       <EventModal
