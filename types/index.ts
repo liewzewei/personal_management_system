@@ -29,6 +29,9 @@ export interface Task {
   completed_at: ISODateTime | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+  // Computed fields for performance (populated by getTasks())
+  subtask_count?: number;
+  subtask_done_count?: number;
 }
 
 /** A top-level task with its subtasks pre-loaded. */

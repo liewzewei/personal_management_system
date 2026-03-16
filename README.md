@@ -43,7 +43,7 @@ A privacy-focused, all-in-one productivity web application for personal task man
 - **Analytics**: Unified dashboard with trends and progress charts
 
 ### Mobile-Responsive Design
-- Collapsible sidebar on desktop (Cmd/Ctrl+B to toggle)
+- Collapsible sidebar on desktop (Cmd/Ctrl+\\ to toggle)
 - Bottom navigation on mobile (< 768px)
 - Touch-optimized Kanban board
 - Safe area support for iOS notch/home bar
@@ -107,6 +107,44 @@ Open [http://localhost:3000](http://localhost:3000) and create your user account
 3. Add environment variables from `.env.local`
 4. Deploy
 5. Update Supabase Auth redirect URLs to include your Vercel domain
+
+## Keyboard Shortcuts
+
+### Global Shortcuts
+| Shortcut | Function |
+|----------|----------|
+| **Ctrl+\\** (or **Cmd+\\** on Mac) | Toggle sidebar collapse/expand |
+| **N** | Open new task modal (when not in input field) |
+| **Ctrl+S** (or **Cmd+S**) | Save diary entry |
+
+### Diary Editor Shortcuts
+#### Text Formatting
+| Shortcut | Function |
+|----------|----------|
+| **Ctrl+B** (or **Cmd+B**) | Bold text |
+| **Ctrl+I** (or **Cmd+I**) | Italic text |
+| **Ctrl+U** (or **Cmd+U**) | Underline text |
+| **Ctrl+E** (or **Cmd+E**) | Inline code |
+| **Ctrl+Shift+S** (or **Cmd+Shift+S**) | Strikethrough |
+
+#### Structure & Lists
+| Shortcut | Function |
+|----------|----------|
+| **Ctrl+Alt+1/2/3** (or **Cmd+Option+1/2/3**) | Heading 1/2/3 |
+| **Ctrl+Alt+0** (or **Cmd+Option+0**) | Paragraph |
+| **Ctrl+Shift+8** (or **Cmd+Shift+8**) | Bullet list |
+| **Ctrl+Shift+7** (or **Cmd+Shift+7**) | Numbered list |
+| **Ctrl+Shift+9** (or **Cmd+Shift+9**) | Task list |
+| **Ctrl+Shift+B** (or **Cmd+Shift+B**) | Blockquote |
+| **Ctrl+Alt+C** (or **Cmd+Option+C**) | Code block |
+
+#### Navigation & Editing
+| Shortcut | Function |
+|----------|----------|
+| **Ctrl+Z** (or **Cmd+Z**) | Undo |
+| **Ctrl+Shift+Z** (or **Cmd+Shift+Z**) | Redo |
+| **Tab** | Indent (2 spaces in code blocks) |
+| **Enter** | Add tag/subtask in forms |
 
 ## Documentation
 

@@ -134,8 +134,6 @@ export default function TasksPage() {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
 
-  // Subtask counts cache: taskId -> { total, done }
-  const [subtaskCounts, setSubtaskCounts] = useState<Record<string, { total: number; done: number }>>({});
 
   const { toast } = useToast();
   const { tags: userTags } = useTags("tasks");
@@ -227,28 +225,6 @@ export default function TasksPage() {
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  // Fetch subtask counts for all tasks
-  useEffect(() => {
-    async function fetchSubtaskCounts() {
-      const counts: Record<string, { total: number; done: number }> = {};
-      await Promise.all(
-        tasks.map(async (task) => {
-          try {
-            const res = await fetch(`/api/tasks/${task.id}`);
-            const body = (await res.json()) as { data: TaskWithSubtasks | null };
-            if (body.data && body.data.subtasks.length > 0) {
-              counts[task.id] = {
-                total: body.data.subtasks.length,
-                done: body.data.subtasks.filter((s) => s.status === "done").length,
-              };
-            }
-          } catch { /* skip */ }
-        })
-      );
-      setSubtaskCounts(counts);
-    }
-    if (tasks.length > 0) fetchSubtaskCounts();
-  }, [tasks]);
 
   // Keyboard shortcut: N opens new task modal
   useEffect(() => {
@@ -341,16 +317,38 @@ export default function TasksPage() {
 
   async function openEditModal(taskId: string) {
     setEditingTaskId(taskId);
-    try {
-      const res = await fetch(`/api/tasks/${taskId}`);
-      const body = (await res.json()) as { data: TaskWithSubtasks | null; error: string | null };
-      if (body.data) {
-        setEditingTask(body.data);
+    
+    // Try to find task in cache first
+    const cachedTask = tasks.find(t => t.id === taskId);
+    
+    if (cachedTask) {
+      // Fetch only subtasks (lightweight query)
+      try {
+        const res = await fetch(`/api/tasks/${taskId}/subtasks`);
+        const body = (await res.json()) as { data: Task[] | null; error: string | null };
+        const taskWithSubtasks: TaskWithSubtasks = {
+          ...cachedTask,
+          subtasks: body.data ?? [],
+        };
+        setEditingTask(taskWithSubtasks);
         setDetailOpen(false);
         setModalOpen(true);
+      } catch {
+        toast({ title: "Failed to load subtasks", variant: "destructive" });
       }
-    } catch {
-      toast({ title: "Something went wrong, please try again", variant: "destructive" });
+    } else {
+      // Fallback: fetch full task if not in cache (rare edge case)
+      try {
+        const res = await fetch(`/api/tasks/${taskId}`);
+        const body = (await res.json()) as { data: TaskWithSubtasks | null; error: string | null };
+        if (body.data) {
+          setEditingTask(body.data);
+          setDetailOpen(false);
+          setModalOpen(true);
+        }
+      } catch {
+        toast({ title: "Something went wrong, please try again", variant: "destructive" });
+      }
     }
   }
 
@@ -458,9 +456,42 @@ export default function TasksPage() {
   }
 
   async function handleSave(data: TaskFormData) {
-    try {
-      if (editingTaskId) {
-        // Update existing task
+    if (editingTaskId) {
+      // Optimistic update for existing task
+      const optimisticTask: Task = {
+        ...tasks.find(t => t.id === editingTaskId)!,
+        title: data.title,
+        description: data.description,
+        status: data.status,
+        priority: data.priority,
+        tags: data.tags.length > 0 ? data.tags : null,
+        deadline: data.deadline,
+        estimated_minutes: data.estimated_minutes,
+        is_recurring: data.is_recurring,
+        recurrence_rule: data.recurrence_rule,
+        updated_at: new Date().toISOString(),
+      };
+
+      // Update cache immediately
+      queryClient.setQueriesData<{ pages: Task[][]; pageParams: number[] }>(
+        { queryKey: ["tasks"] },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) =>
+              page.map((task) => (task.id === editingTaskId ? optimisticTask : task))
+            ),
+          };
+        }
+      );
+
+      // Close modal immediately
+      setModalOpen(false);
+      toast({ title: "Saving task..." });
+
+      // Background save
+      try {
         const res = await fetch(`/api/tasks/${editingTaskId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -483,9 +514,21 @@ export default function TasksPage() {
           await syncSubtasks(editingTaskId, editingTask.subtasks, data.subtasks);
         }
 
-        toast({ title: "Task saved" });
-      } else {
-        // Create new task
+        // Refresh to get accurate data
+        refetch();
+        queryClient.invalidateQueries({ queryKey: ["task-tag-counts"] });
+        queryClient.invalidateQueries({ queryKey: ["subtasks", editingTaskId] });
+      } catch {
+        // Revert on error
+        refetch();
+        toast({ title: "Failed to save task. Please try again.", variant: "destructive" });
+      }
+    } else {
+      // Create new task (keep non-optimistic since we need the ID)
+      setModalOpen(false);
+      toast({ title: "Creating task..." });
+
+      try {
         const res = await fetch("/api/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -504,29 +547,30 @@ export default function TasksPage() {
         if (!res.ok) throw new Error();
         const body = (await res.json()) as { data: Task | null };
 
-        // Create subtasks for new task
+        // Create subtasks for new task (in parallel)
         if (body.data && data.subtasks.length > 0) {
-          for (const sub of data.subtasks) {
-            await fetch("/api/tasks", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                title: sub.title,
-                status: sub.status,
-                parent_task_id: body.data.id,
-              }),
-            });
-          }
+          const parentId = body.data.id;
+          await Promise.all(
+            data.subtasks.map((sub) =>
+              fetch("/api/tasks", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  title: sub.title,
+                  status: sub.status,
+                  parent_task_id: parentId,
+                }),
+              })
+            )
+          );
         }
 
+        refetch();
+        queryClient.invalidateQueries({ queryKey: ["task-tag-counts"] });
         toast({ title: "Task created" });
+      } catch {
+        toast({ title: "Failed to create task. Please try again.", variant: "destructive" });
       }
-
-      setModalOpen(false);
-      refetch();
-      queryClient.invalidateQueries({ queryKey: ["task-tag-counts"] });
-    } catch {
-      toast({ title: "Something went wrong, please try again", variant: "destructive" });
     }
   }
 
@@ -538,26 +582,32 @@ export default function TasksPage() {
     const existingIds = new Set(existing.map((s) => s.id));
     const formIds = new Set(formItems.filter((s) => s.id).map((s) => s.id));
 
-    // Delete subtasks removed from form
-    for (const sub of existing) {
-      if (!formIds.has(sub.id)) {
-        await fetch(`/api/tasks/${sub.id}`, { method: "DELETE" });
-      }
-    }
+    // Parallelize deletes
+    const deletePromises = existing
+      .filter((sub) => !formIds.has(sub.id))
+      .map((sub) => fetch(`/api/tasks/${sub.id}`, { method: "DELETE" }));
 
-    // Update existing / create new
-    for (const item of formItems) {
-      if (item.id && existingIds.has(item.id)) {
+    // Parallelize updates
+    const updatePromises = formItems
+      .filter((item) => item.id && existingIds.has(item.id))
+      .map((item) => {
         const orig = existing.find((s) => s.id === item.id);
         if (orig && (orig.title !== item.title || orig.status !== item.status)) {
-          await fetch(`/api/tasks/${item.id}`, {
+          return fetch(`/api/tasks/${item.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ title: item.title, status: item.status }),
           });
         }
-      } else if (item.isNew || !item.id) {
-        await fetch("/api/tasks", {
+        return Promise.resolve();
+      })
+      .filter((p) => p !== Promise.resolve());
+
+    // Parallelize creates
+    const createPromises = formItems
+      .filter((item) => item.isNew || !item.id)
+      .map((item) =>
+        fetch("/api/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -565,9 +615,11 @@ export default function TasksPage() {
             status: item.status,
             parent_task_id: parentId,
           }),
-        });
-      }
-    }
+        })
+      );
+
+    // Execute all operations in parallel
+    await Promise.all([...deletePromises, ...updatePromises, ...createPromises]);
   }
 
 
@@ -741,8 +793,8 @@ export default function TasksPage() {
                       key={task.id}
                       task={task}
                       column="todo"
-                      subtaskCount={subtaskCounts[task.id]?.total ?? 0}
-                      subtaskDoneCount={subtaskCounts[task.id]?.done ?? 0}
+                      subtaskCount={task.subtask_count ?? 0}
+                      subtaskDoneCount={task.subtask_done_count ?? 0}
                       onClick={openDetail}
                       onEdit={openEditModal}
                       onDuplicate={handleDuplicate}
@@ -766,8 +818,8 @@ export default function TasksPage() {
                       key={task.id}
                       task={task}
                       column="in_progress"
-                      subtaskCount={subtaskCounts[task.id]?.total ?? 0}
-                      subtaskDoneCount={subtaskCounts[task.id]?.done ?? 0}
+                      subtaskCount={task.subtask_count ?? 0}
+                      subtaskDoneCount={task.subtask_done_count ?? 0}
                       onComplete={handleComplete}
                       onClick={openDetail}
                       onEdit={openEditModal}
@@ -794,8 +846,8 @@ export default function TasksPage() {
                       key={task.id}
                       task={task}
                       column="done"
-                      subtaskCount={subtaskCounts[task.id]?.total ?? 0}
-                      subtaskDoneCount={subtaskCounts[task.id]?.done ?? 0}
+                      subtaskCount={task.subtask_count ?? 0}
+                      subtaskDoneCount={task.subtask_done_count ?? 0}
                       onClick={openDetail}
                     />
                   ))}
@@ -825,8 +877,8 @@ export default function TasksPage() {
                     <KanbanCard
                       task={activeDragTask}
                       column="todo"
-                      subtaskCount={subtaskCounts[activeDragTask.id]?.total ?? 0}
-                      subtaskDoneCount={subtaskCounts[activeDragTask.id]?.done ?? 0}
+                      subtaskCount={activeDragTask.subtask_count ?? 0}
+                      subtaskDoneCount={activeDragTask.subtask_done_count ?? 0}
                       onClick={() => {}}
                     />
                   </div>
@@ -861,6 +913,7 @@ export default function TasksPage() {
         open={detailOpen}
         onOpenChange={setDetailOpen}
         taskId={detailTaskId}
+        task={detailTaskId ? tasks.find(t => t.id === detailTaskId) ?? null : null}
         onEdit={openEditModal}
       />
 

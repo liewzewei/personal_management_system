@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
+import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
@@ -63,6 +64,22 @@ interface DiaryEditorProps {
 
 const lowlight = createLowlight(common);
 
+// Custom extension to handle Tab key in code blocks
+const CodeBlockTabHandler = Extension.create({
+  name: "codeBlockTabHandler",
+
+  addKeyboardShortcuts() {
+    return {
+      Tab: () => {
+        if (this.editor.isActive("codeBlock")) {
+          return this.editor.commands.insertContent("  ");
+        }
+        return false;
+      },
+    };
+  },
+});
+
 const CODE_LANGUAGES = [
   { value: "", label: "Auto" },
   { value: "javascript", label: "JavaScript" },
@@ -108,6 +125,7 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
       Mathematics.configure({
         katexOptions: { throwOnError: false },
       }),
+      CodeBlockTabHandler,
     ],
     content: mounted ? (entry.content ?? "") : "",
     editorProps: {

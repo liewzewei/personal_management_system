@@ -26,12 +26,13 @@ import { LinkedDescription } from "@/components/tasks/LinkedDescription";
 import { useSubtasks } from "@/lib/hooks/useSubtasks";
 import { useToggleSubtask } from "@/lib/hooks/useToggleSubtask";
 import { useToast } from "@/lib/hooks/use-toast";
-import type { TaskWithSubtasks } from "@/types";
+import type { Task, TaskWithSubtasks } from "@/types";
 
 interface TaskDetailPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   taskId: string | null;
+  task: Task | null;
   onEdit: (taskId: string) => void;
 }
 
@@ -95,34 +96,14 @@ export function TaskDetailPanel({
   open,
   onOpenChange,
   taskId,
+  task,
   onEdit,
 }: TaskDetailPanelProps) {
-  const [task, setTask] = useState<TaskWithSubtasks | null>(null);
-  const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
   // Shared subtask cache — same key as SubtaskDropdown in KanbanCard
   const { data: subtasks } = useSubtasks(open && taskId ? taskId : null);
   const toggleSubtask = useToggleSubtask(taskId ?? "");
-
-  const fetchTask = useCallback(() => {
-    if (!taskId) return;
-    setLoading(true);
-    fetch(`/api/tasks/${taskId}`)
-      .then(async (res) => {
-        const body = (await res.json()) as { data: TaskWithSubtasks | null; error: string | null };
-        if (res.ok && body.data) {
-          setTask(body.data);
-        }
-      })
-      .catch(() => { /* silently fail */ })
-      .finally(() => setLoading(false));
-  }, [taskId]);
-
-  useEffect(() => {
-    if (open && taskId) fetchTask();
-    if (!open) setTask(null);
-  }, [open, taskId, fetchTask]);
 
   function handleToggleSubtask(subtaskId: string, currentStatus: string) {
     toggleSubtask.mutate(
@@ -140,9 +121,9 @@ export function TaskDetailPanel({
 
   const priority = task ? priorityConfig[task.priority] : null;
   const deadline = task?.deadline ? formatDeadline(task.deadline) : null;
-  // Use shared subtask cache if available, fall back to task.subtasks
-  const activeSubtasks = subtasks ?? task?.subtasks ?? [];
-  const doneSubtasks = activeSubtasks.filter((s) => s.status === "done").length;
+  // Use shared subtask cache
+  const activeSubtasks = subtasks ?? [];
+  const doneSubtasks = activeSubtasks.filter((s: Task) => s.status === "done").length;
   const totalSubtasks = activeSubtasks.length;
 
   return (
@@ -151,7 +132,7 @@ export function TaskDetailPanel({
         <SheetHeader className="flex flex-row items-start justify-between gap-2">
           <div className="flex-1">
             <SheetTitle className="text-left">
-              {loading ? "Loading..." : task?.title ?? "Task"}
+              {task?.title ?? "Task"}
             </SheetTitle>
             <SheetDescription className="text-left">
               Task details

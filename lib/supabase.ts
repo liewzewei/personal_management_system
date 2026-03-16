@@ -176,12 +176,12 @@ export async function signOut(): Promise<SupabaseQueryResult<null>> {
 export async function getTasks(filters?: TaskFilters & { limit?: number; offset?: number }): Promise<SupabaseQueryResult<Task[]>> {
   try {
     const client = await createServerSupabaseClient();
-    await requireUserId(client);
+    const userId = await requireUserId(client);
 
     let query = client
       .schema<PublicSchema>("public")
       .from("tasks")
-      .select("id,title,status,priority,tags,deadline,estimated_minutes,completed_at,parent_task_id,is_recurring,outlook_event_id,created_at,updated_at,user_id")
+      .select("id,title,status,priority,tags,deadline,estimated_minutes,completed_at,parent_task_id,is_recurring,outlook_event_id,created_at,updated_at,user_id,description")
       .is("parent_task_id", null);
 
     if (filters?.status) {
@@ -224,6 +224,39 @@ export async function getTasks(filters?: TaskFilters & { limit?: number; offset?
     if (error) return { data: null, error: asError("Failed to fetch tasks", error) };
 
     let tasks = data as unknown as Task[];
+
+    // Fetch subtask counts in a single query for all tasks
+    const taskIds = tasks.map(t => t.id);
+    if (taskIds.length > 0) {
+      const { data: subtasks } = await client
+        .schema<PublicSchema>("public")
+        .from("tasks")
+        .select("parent_task_id,status")
+        .in("parent_task_id", taskIds)
+        .eq("user_id", userId);
+
+      if (subtasks) {
+        // Compute counts per parent task
+        const counts: Record<string, { total: number; done: number }> = {};
+        for (const sub of subtasks as unknown as Task[]) {
+          if (!sub.parent_task_id) continue;
+          if (!counts[sub.parent_task_id]) {
+            counts[sub.parent_task_id] = { total: 0, done: 0 };
+          }
+          counts[sub.parent_task_id].total++;
+          if (sub.status === "done") {
+            counts[sub.parent_task_id].done++;
+          }
+        }
+
+        // Attach counts to tasks
+        tasks = tasks.map(t => ({
+          ...t,
+          subtask_count: counts[t.id]?.total ?? 0,
+          subtask_done_count: counts[t.id]?.done ?? 0,
+        }));
+      }
+    }
 
     // Custom priority sorting since Postgres text ordering doesn't match our desired order
     if (sortBy === "priority") {
