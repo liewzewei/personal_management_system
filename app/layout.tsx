@@ -13,7 +13,7 @@ import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { BottomNav } from "@/components/BottomNav";
 import { QueryProvider } from "@/components/QueryProvider";
@@ -49,9 +49,9 @@ export default async function RootLayout({
           <TooltipProvider>
             <SidebarProvider defaultOpen={defaultOpen}>
               <AppSidebar />
-              <main className="flex-1 overflow-y-auto min-w-0 pb-16 md:pb-0 transition-all duration-200 ease-linear">
+              <SidebarInset className="flex-1 overflow-y-auto min-w-0 pb-16 md:pb-0">
                 {children}
-              </main>
+              </SidebarInset>
               <BottomNav />
             </SidebarProvider>
           </TooltipProvider>

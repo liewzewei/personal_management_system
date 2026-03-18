@@ -8,7 +8,7 @@
 
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { DiaryList } from "@/components/diary/DiaryList";
 import { Button } from "@/components/ui/button";
@@ -20,8 +20,12 @@ const DiaryEditor = dynamic(
   () => import("@/components/diary/DiaryEditor").then((m) => m.DiaryEditor),
   { ssr: false, loading: () => <div className="h-full w-full animate-pulse bg-muted" /> }
 );
+const DiaryGraphView = dynamic(
+  () => import("@/components/diary/DiaryGraphView").then((m) => m.DiaryGraphView),
+  { ssr: false, loading: () => <div className="h-full w-full animate-pulse bg-muted" /> }
+);
 import { useToast } from "@/lib/hooks/use-toast";
-import { PenLine } from "lucide-react";
+import { PenLine, Network, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDiaryEntries, useDiaryMutation } from "@/lib/hooks/useDiaryEntries";
 import { useTags } from "@/lib/hooks/useTags";
@@ -36,12 +40,50 @@ export default function DiaryPage() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileShowEditor, setMobileShowEditor] = useState(false);
+  const [view, setView] = useState<"normal" | "graph">("normal");
+  const [graphLoading, setGraphLoading] = useState(false);
+  const autoLoadRef = useRef(false);
 
   // React Query hooks
   const { entries, loading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useDiaryEntries({ tags: selectedTags.length > 0 ? selectedTags : undefined, search: searchQuery || undefined });
   const { tags: allTags } = useTags("diary");
   const { createEntry, deleteEntry } = useDiaryMutation();
+
+  // Auto-load all pages when entering graph view
+  useEffect(() => {
+    if (view !== "graph") {
+      autoLoadRef.current = false;
+      setGraphLoading(false);
+      return;
+    }
+    if (!hasNextPage || isFetchingNextPage || autoLoadRef.current) {
+      if (!isFetchingNextPage) setGraphLoading(false);
+      return;
+    }
+    setGraphLoading(true);
+    autoLoadRef.current = true;
+    fetchNextPage();
+  }, [view, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // Keep loading pages after each page completes
+  useEffect(() => {
+    if (view === "graph" && autoLoadRef.current && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+    if (view === "graph" && !hasNextPage && !isFetchingNextPage) {
+      setGraphLoading(false);
+    }
+  }, [view, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const handleGraphEntrySelect = useCallback(
+    (id: string) => {
+      setView("normal");
+      loadEntry(id);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   const loadEntry = async (id: string) => {
     try {
@@ -154,68 +196,91 @@ export default function DiaryPage() {
                 ← Entries
               </Button>
             )}
-            <Button size="sm" onClick={handleNewEntry}>
-              <PenLine className="h-4 w-4" />
-              <span className="hidden sm:inline ml-1">New Entry</span>
+            {view === "normal" && (
+              <Button size="sm" onClick={handleNewEntry}>
+                <PenLine className="h-4 w-4" />
+                <span className="hidden sm:inline ml-1">New Entry</span>
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setView((v) => (v === "normal" ? "graph" : "normal"))}
+            >
+              {view === "normal" ? (
+                <><Network className="h-4 w-4" /><span className="hidden sm:inline ml-1">Graph View</span></>
+              ) : (
+                <><BookOpen className="h-4 w-4" /><span className="hidden sm:inline ml-1">Diary View</span></>
+              )}
             </Button>
           </>
         }
       />
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Entry list sidebar */}
-        <div
-          className={cn(
-            "flex flex-col border-r overflow-y-auto",
-            "w-full md:w-[300px] md:shrink-0",
-            mobileShowEditor ? "hidden md:flex" : "flex",
-            !entrySidebar.isOpen && "md:hidden"
-          )}
-        >
-          <DiaryList
+      {view === "graph" ? (
+        <div className="flex-1 overflow-hidden">
+          <DiaryGraphView
             entries={entries}
-            activeEntryId={activeEntry?.id ?? null}
-            allTags={allTags}
-            selectedTags={selectedTags}
-            searchQuery={searchQuery}
-            onSelectEntry={loadEntry}
-            onNewEntry={handleNewEntry}
-            onDeleteEntry={handleDeleteEntry}
-            onDuplicateEntry={handleDuplicateEntry}
-            onSearchChange={setSearchQuery}
-            onTagToggle={handleTagToggle}
-            onLoadMore={hasNextPage ? fetchNextPage : undefined}
-            isLoadingMore={isFetchingNextPage}
+            onSelectEntry={handleGraphEntrySelect}
+            loading={graphLoading}
           />
         </div>
-
-        {/* Editor panel */}
-        <div
-          className={cn(
-            "flex-1 overflow-hidden flex flex-col",
-            !mobileShowEditor ? "hidden md:flex" : "flex"
-          )}
-        >
-          {activeEntry ? (
-            <DiaryEditor
-              entry={activeEntry}
+      ) : (
+        <div className="flex flex-1 overflow-hidden">
+          {/* Entry list sidebar */}
+          <div
+            className={cn(
+              "flex flex-col border-r overflow-y-auto",
+              "w-full md:w-[300px] md:shrink-0",
+              mobileShowEditor ? "hidden md:flex" : "flex",
+              !entrySidebar.isOpen && "md:hidden"
+            )}
+          >
+            <DiaryList
+              entries={entries}
+              activeEntryId={activeEntry?.id ?? null}
               allTags={allTags}
-              onSaved={handleEntrySaved}
-              onBack={() => setMobileShowEditor(false)}
+              selectedTags={selectedTags}
+              searchQuery={searchQuery}
+              onSelectEntry={loadEntry}
+              onNewEntry={handleNewEntry}
+              onDeleteEntry={handleDeleteEntry}
+              onDuplicateEntry={handleDuplicateEntry}
+              onSearchChange={setSearchQuery}
+              onTagToggle={handleTagToggle}
+              onLoadMore={hasNextPage ? fetchNextPage : undefined}
+              isLoadingMore={isFetchingNextPage}
             />
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
-              <PenLine className="h-12 w-12 text-muted-foreground/50" />
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  Start writing. Your thoughts are safe here.
-                </p>
+          </div>
+
+          {/* Editor panel */}
+          <div
+            className={cn(
+              "flex-1 overflow-hidden flex flex-col",
+              !mobileShowEditor ? "hidden md:flex" : "flex"
+            )}
+          >
+            {activeEntry ? (
+              <DiaryEditor
+                entry={activeEntry}
+                allTags={allTags}
+                onSaved={handleEntrySaved}
+                onBack={() => setMobileShowEditor(false)}
+              />
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+                <PenLine className="h-12 w-12 text-muted-foreground/50" />
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    Start writing. Your thoughts are safe here.
+                  </p>
+                </div>
+                <Button onClick={handleNewEntry}>New Entry</Button>
               </div>
-              <Button onClick={handleNewEntry}>New Entry</Button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
