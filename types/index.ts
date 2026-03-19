@@ -139,6 +139,15 @@ export interface SyncResult {
   errors: string[];
 }
 
+export interface DiaryFolder {
+  id: UUID;
+  user_id: UUID;
+  name: string;
+  parent_folder_id: UUID | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
 export interface DiaryEntry {
   id: UUID;
   user_id: UUID;
@@ -146,6 +155,7 @@ export interface DiaryEntry {
   content: Record<string, unknown> | null;
   content_text: string | null;
   tags: string[] | null;
+  folder_id: UUID | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }

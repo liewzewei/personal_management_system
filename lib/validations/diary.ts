@@ -11,6 +11,7 @@ export const createDiaryEntrySchema = z.object({
   content: z.record(z.string(), z.unknown()).nullish(),
   content_text: z.string().nullish(),
   tags: z.array(z.string().max(50)).max(20).nullish(),
+  folder_id: z.string().uuid().nullish(),
 });
 
 export const updateDiaryEntrySchema = z.object({
@@ -18,6 +19,7 @@ export const updateDiaryEntrySchema = z.object({
   content: z.record(z.string(), z.unknown()).nullish(),
   content_text: z.string().nullish(),
   tags: z.array(z.string().max(50)).max(20).nullish(),
+  folder_id: z.string().uuid().nullish(),
 });
 
 export const diaryQuerySchema = z.object({

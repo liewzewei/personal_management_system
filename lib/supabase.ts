@@ -33,7 +33,7 @@ import { createBrowserClient, createServerClient } from "@supabase/ssr";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
-import type { BodyMetric, CalendarEvent, CalendarEventInput, DailyNutritionSummary, DiaryEntry, ExerciseSession, FoodLog, IcalFeed, IcalFeedInput, OAuthToken, OutlookSyncState, PersonalRecord, RunLap, SavedFood, Task, TaskFilters, TaskInput, TaskWithSubtasks, UserPreferences } from "@/types";
+import type { BodyMetric, CalendarEvent, CalendarEventInput, DailyNutritionSummary, DiaryEntry, DiaryFolder, ExerciseSession, FoodLog, IcalFeed, IcalFeedInput, OAuthToken, OutlookSyncState, PersonalRecord, RunLap, SavedFood, Task, TaskFilters, TaskInput, TaskWithSubtasks, UserPreferences } from "@/types";
 import type { PRDistanceBucket } from "@/types";
 import { calculatePace, getDistanceBucket } from "@/lib/exercise-utils";
 
@@ -1199,7 +1199,7 @@ export async function getDiaryEntries(
     let query = client
       .schema<PublicSchema>("public")
       .from("diary_entries")
-      .select("id,title,content_text,tags,created_at,updated_at,user_id")
+      .select("id,title,content,content_text,tags,folder_id,created_at,updated_at,user_id")
       .order("updated_at", { ascending: false });
 
     if (filters?.tag && filters.tag.length > 0) {
@@ -1253,7 +1253,13 @@ export async function getDiaryEntryById(entryId: string): Promise<SupabaseQueryR
  * Creates a new diary entry. Can be called with no data for an empty entry.
  */
 export async function createDiaryEntry(
-  entryData?: { title?: string | null; content?: Record<string, unknown> | null; content_text?: string | null; tags?: string[] | null }
+  entryData?: {
+    title?: string | null;
+    content?: Record<string, unknown> | null;
+    content_text?: string | null;
+    tags?: string[] | null;
+    folder_id?: string | null;
+  }
 ): Promise<SupabaseQueryResult<DiaryEntry>> {
   try {
     const client = await createServerSupabaseClient();
@@ -1265,6 +1271,7 @@ export async function createDiaryEntry(
       content: entryData?.content ?? null,
       content_text: entryData?.content_text ?? null,
       tags: entryData?.tags ?? null,
+      folder_id: entryData?.folder_id ?? null,
     };
 
     const { data, error } = await client
@@ -1291,6 +1298,7 @@ export async function updateDiaryEntry(
     content?: Record<string, unknown> | null;
     content_text?: string | null;
     tags?: string[] | null;
+    folder_id?: string | null;
   }
 ): Promise<SupabaseQueryResult<DiaryEntry>> {
   try {
@@ -1309,6 +1317,196 @@ export async function updateDiaryEntry(
     return { data: data as unknown as DiaryEntry, error: null };
   } catch (cause) {
     return { data: null, error: asError("Failed to update diary entry", cause) };
+  }
+}
+
+/**
+ * Fetches all diary folders for the current user as a flat list.
+ */
+export async function getDiaryFolders(): Promise<SupabaseQueryResult<DiaryFolder[]>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("diary_folders")
+      .select("id,user_id,name,parent_folder_id,created_at,updated_at")
+      .order("name", { ascending: true });
+
+    if (error) return { data: null, error: asError("Failed to fetch diary folders", error) };
+    return { data: data as unknown as DiaryFolder[], error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch diary folders", cause) };
+  }
+}
+
+/**
+ * Creates a new diary folder for the current user.
+ */
+export async function createDiaryFolder(
+  name: string,
+  parentFolderId?: string | null
+): Promise<SupabaseQueryResult<DiaryFolder>> {
+  try {
+    const trimmed = name.trim();
+    if (!trimmed) return { data: null, error: new Error("Folder name cannot be empty") };
+
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("diary_folders")
+      .insert({
+        user_id: userId,
+        name: trimmed,
+        parent_folder_id: parentFolderId ?? null,
+      })
+      .select("id,user_id,name,parent_folder_id,created_at,updated_at")
+      .single();
+
+    if (error) return { data: null, error: asError("Failed to create diary folder", error) };
+    return { data: data as unknown as DiaryFolder, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to create diary folder", cause) };
+  }
+}
+
+/**
+ * Renames a diary folder.
+ */
+export async function renameDiaryFolder(
+  folderId: string,
+  newName: string
+): Promise<SupabaseQueryResult<DiaryFolder>> {
+  try {
+    const trimmed = newName.trim();
+    if (!trimmed) return { data: null, error: new Error("Folder name cannot be empty") };
+
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("diary_folders")
+      .update({ name: trimmed })
+      .eq("id", folderId)
+      .select("id,user_id,name,parent_folder_id,created_at,updated_at")
+      .single();
+
+    if (error) return { data: null, error: asError("Failed to rename diary folder", error) };
+    return { data: data as unknown as DiaryFolder, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to rename diary folder", cause) };
+  }
+}
+
+/**
+ * Deletes an empty diary folder.
+ */
+export async function deleteDiaryFolder(folderId: string): Promise<SupabaseQueryResult<{ deleted: true }>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    const [{ count: childCount, error: childError }, { count: entryCount, error: entryError }] = await Promise.all([
+      client
+        .schema<PublicSchema>("public")
+        .from("diary_folders")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("parent_folder_id", folderId),
+      client
+        .schema<PublicSchema>("public")
+        .from("diary_entries")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("folder_id", folderId),
+    ]);
+
+    if (childError) return { data: null, error: asError("Failed to inspect diary folder contents", childError) };
+    if (entryError) return { data: null, error: asError("Failed to inspect diary folder contents", entryError) };
+
+    if ((childCount ?? 0) > 0 || (entryCount ?? 0) > 0) {
+      return {
+        data: null,
+        error: new Error("Cannot delete a folder that contains entries or subfolders. Move or delete the contents first."),
+      };
+    }
+
+    const { error } = await client
+      .schema<PublicSchema>("public")
+      .from("diary_folders")
+      .delete()
+      .eq("id", folderId)
+      .eq("user_id", userId);
+
+    if (error) return { data: null, error: asError("Failed to delete diary folder", error) };
+    return { data: { deleted: true }, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to delete diary folder", cause) };
+  }
+}
+
+/**
+ * Moves a diary entry into a folder, or to the ungrouped area when folderId is null.
+ */
+export async function moveEntryToFolder(
+  entryId: string,
+  folderId: string | null
+): Promise<SupabaseQueryResult<DiaryEntry>> {
+  return updateDiaryEntry(entryId, { folder_id: folderId });
+}
+
+/**
+ * Moves a folder under another folder or to the top level when newParentId is null.
+ */
+export async function moveFolderToFolder(
+  folderId: string,
+  newParentId: string | null
+): Promise<SupabaseQueryResult<DiaryFolder>> {
+  try {
+    if (folderId === newParentId) {
+      return { data: null, error: new Error("A folder cannot be its own parent") };
+    }
+
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    const { data: folders, error: foldersError } = await client
+      .schema<PublicSchema>("public")
+      .from("diary_folders")
+      .select("id,parent_folder_id")
+      .eq("user_id", userId);
+
+    if (foldersError) return { data: null, error: asError("Failed to validate diary folder move", foldersError) };
+
+    const parentById = new Map<string, string | null>(
+      (folders ?? []).map((folder) => [folder.id as string, (folder.parent_folder_id as string | null) ?? null])
+    );
+
+    let currentParent = newParentId;
+    while (currentParent) {
+      if (currentParent === folderId) {
+        return { data: null, error: new Error("Cannot move a folder into its own descendant") };
+      }
+      currentParent = parentById.get(currentParent) ?? null;
+    }
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("diary_folders")
+      .update({ parent_folder_id: newParentId })
+      .eq("id", folderId)
+      .eq("user_id", userId)
+      .select("id,user_id,name,parent_folder_id,created_at,updated_at")
+      .single();
+
+    if (error) return { data: null, error: asError("Failed to move diary folder", error) };
+    return { data: data as unknown as DiaryFolder, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to move diary folder", cause) };
   }
 }
 

@@ -28,6 +28,7 @@ import { useToast } from "@/lib/hooks/use-toast";
 import { PenLine, Network, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDiaryEntries, useDiaryMutation } from "@/lib/hooks/useDiaryEntries";
+import { useDiaryFolders } from "@/lib/hooks/useDiaryFolders";
 import { useTags } from "@/lib/hooks/useTags";
 import { useQueryClient } from "@tanstack/react-query";
 import type { DiaryEntry } from "@/types";
@@ -47,8 +48,9 @@ export default function DiaryPage() {
   // React Query hooks
   const { entries, loading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useDiaryEntries({ tags: selectedTags.length > 0 ? selectedTags : undefined, search: searchQuery || undefined });
+  useDiaryFolders();
   const { tags: allTags } = useTags("diary");
-  const { createEntry, deleteEntry } = useDiaryMutation();
+  const { createEntry, updateEntry, deleteEntry } = useDiaryMutation();
 
   // Auto-load all pages when entering graph view
   useEffect(() => {
@@ -98,8 +100,8 @@ export default function DiaryPage() {
     }
   };
 
-  const handleNewEntry = useCallback(async () => {
-    createEntry.mutate(undefined, {
+  const handleNewEntry = useCallback((folderId: string | null = null) => {
+    createEntry.mutate({ folder_id: folderId }, {
       onSuccess: (newEntry) => {
         if (newEntry) {
           setActiveEntry(newEntry);
@@ -112,40 +114,65 @@ export default function DiaryPage() {
     });
   }, [createEntry, toast]);
 
-  const handleDeleteEntry = useCallback(async (id: string) => {
+  const handleDeleteEntry = useCallback((id: string) => {
+    const deletedWasActive = activeEntry?.id === id;
+    const previousActive = activeEntry;
+    if (deletedWasActive) {
+      setActiveEntry(null);
+      setMobileShowEditor(true);
+    }
+
     deleteEntry.mutate(id, {
       onSuccess: () => {
-        if (activeEntry?.id === id) {
-          setActiveEntry(null);
-          setMobileShowEditor(false);
-        }
         toast({ title: "Entry deleted" });
       },
       onError: () => {
+        if (deletedWasActive && previousActive) {
+          setActiveEntry(previousActive);
+          setMobileShowEditor(true);
+        }
         toast({ title: "Failed to delete entry", variant: "destructive" });
       },
     });
   }, [deleteEntry, activeEntry?.id, toast]);
 
-  const handleDuplicateEntry = async (id: string) => {
-    try {
-      const res = await fetch(`/api/diary/${id}`);
-      const original = (await res.json()) as { data: DiaryEntry | null; error: string | null };
-      if (!original.data) return;
+  const handleRenameEntry = useCallback(
+    (id: string, title: string | null) => {
+      updateEntry.mutate(
+        { entryId: id, updates: { title } },
+        {
+          onSuccess: (updated) => {
+            if (updated && activeEntry?.id === updated.id) {
+              setActiveEntry(updated);
+            }
+          },
+          onError: () => {
+            toast({ title: "Failed to rename entry", variant: "destructive" });
+          },
+        }
+      );
+    },
+    [activeEntry?.id, toast, updateEntry]
+  );
 
-      createEntry.mutate({
-        title: original.data.title ? `Copy of ${original.data.title}` : "Copy of Untitled",
-        content: original.data.content as Record<string, unknown> | undefined,
-        content_text: original.data.content_text ?? undefined,
-        tags: original.data.tags ?? undefined,
-      }, {
-        onSuccess: () => toast({ title: "Entry duplicated" }),
-        onError: () => toast({ title: "Failed to duplicate entry", variant: "destructive" }),
-      });
-    } catch {
-      toast({ title: "Failed to duplicate entry", variant: "destructive" });
-    }
-  };
+  const handleMoveEntry = useCallback(
+    (id: string, folderId: string | null) => {
+      updateEntry.mutate(
+        { entryId: id, updates: { folder_id: folderId } },
+        {
+          onSuccess: (updated) => {
+            if (updated && activeEntry?.id === updated.id) {
+              setActiveEntry(updated);
+            }
+          },
+          onError: () => {
+            toast({ title: "Failed to move entry", variant: "destructive" });
+          },
+        }
+      );
+    },
+    [activeEntry?.id, toast, updateEntry]
+  );
 
   const handleTagToggle = (tag: string) => {
     setSelectedTags((prev) =>
@@ -197,7 +224,7 @@ export default function DiaryPage() {
               </Button>
             )}
             {view === "normal" && (
-              <Button size="sm" onClick={handleNewEntry}>
+              <Button size="sm" onClick={() => handleNewEntry()}>
                 <PenLine className="h-4 w-4" />
                 <span className="hidden sm:inline ml-1">New Entry</span>
               </Button>
@@ -237,6 +264,7 @@ export default function DiaryPage() {
             )}
           >
             <DiaryList
+              loading={loading}
               entries={entries}
               activeEntryId={activeEntry?.id ?? null}
               allTags={allTags}
@@ -245,7 +273,8 @@ export default function DiaryPage() {
               onSelectEntry={loadEntry}
               onNewEntry={handleNewEntry}
               onDeleteEntry={handleDeleteEntry}
-              onDuplicateEntry={handleDuplicateEntry}
+              onRenameEntry={handleRenameEntry}
+              onMoveEntry={handleMoveEntry}
               onSearchChange={setSearchQuery}
               onTagToggle={handleTagToggle}
               onLoadMore={hasNextPage ? fetchNextPage : undefined}
@@ -275,7 +304,7 @@ export default function DiaryPage() {
                     Start writing. Your thoughts are safe here.
                   </p>
                 </div>
-                <Button onClick={handleNewEntry}>New Entry</Button>
+                <Button onClick={() => handleNewEntry()}>New Entry</Button>
               </div>
             )}
           </div>

@@ -8,7 +8,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -105,8 +105,11 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
   const [linkUrl, setLinkUrl] = useState("");
   const [failCount, setFailCount] = useState(0);
   const [deleted, setDeleted] = useState(false);
+  const [mathEdit, setMathEdit] = useState<{ pos: number; latex: string; type: "inline" | "block" } | null>(null);
+  const [mathInput, setMathInput] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
+  const mathInputRef = useRef<HTMLInputElement>(null);
   const entryIdRef = useRef(entry.id);
 
   // Initialize editor (only on client)
@@ -124,6 +127,20 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
       CodeBlockLowlight.configure({ lowlight }),
       Mathematics.configure({
         katexOptions: { throwOnError: false },
+        inlineOptions: {
+          onClick: (node, pos) => {
+            setMathEdit({ pos, latex: node.attrs.latex as string, type: "inline" });
+            setMathInput(node.attrs.latex as string);
+            setTimeout(() => mathInputRef.current?.focus(), 50);
+          },
+        },
+        blockOptions: {
+          onClick: (node, pos) => {
+            setMathEdit({ pos, latex: node.attrs.latex as string, type: "block" });
+            setMathInput(node.attrs.latex as string);
+            setTimeout(() => mathInputRef.current?.focus(), 50);
+          },
+        },
       }),
       CodeBlockTabHandler,
     ],
@@ -235,17 +252,99 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
     return () => window.removeEventListener("blur", handleBlur);
   }, [doSave]);
 
-  // Ctrl+S
+  // Ctrl+S and Ctrl+Shift+E
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
         doSave();
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "e") {
+        e.preventDefault();
+        if (editor) {
+          editor.chain().focus().insertInlineMath({ latex: "\\:" }).run();
+          // Find the just-inserted node and open editor for it
+          setTimeout(() => {
+            if (!editor) return;
+            const pos = editor.state.selection.from - 1;
+            const node = editor.state.doc.nodeAt(pos);
+            if (node && node.type.name === "inlineMath") {
+              setMathEdit({ pos, latex: "", type: "inline" });
+              setMathInput("");
+              setTimeout(() => mathInputRef.current?.focus(), 50);
+            }
+          }, 50);
+        }
+      }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [doSave]);
+  }, [doSave, editor]);
+
+  // Close math editor on outside click
+  useEffect(() => {
+    if (!mathEdit) return;
+    const handle = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest(".math-edit-popover")) return;
+      if (target.closest(".tiptap-mathematics-render")) return;
+      closeMathEdit();
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  });
+
+  const closeMathEdit = useCallback(() => {
+    if (!editor || !mathEdit) {
+      setMathEdit(null);
+      setMathInput("");
+      return;
+    }
+    const trimmed = mathInput.trim();
+    if (!trimmed || trimmed === "\\:") {
+      // Delete the empty node
+      if (mathEdit.type === "inline") {
+        editor.chain().focus().deleteInlineMath({ pos: mathEdit.pos }).run();
+      } else {
+        editor.chain().focus().deleteBlockMath({ pos: mathEdit.pos }).run();
+      }
+    } else if (trimmed !== mathEdit.latex) {
+      // Update the node with new latex
+      if (mathEdit.type === "inline") {
+        editor.chain().focus().updateInlineMath({ latex: trimmed, pos: mathEdit.pos }).run();
+      } else {
+        editor.chain().focus().updateBlockMath({ latex: trimmed, pos: mathEdit.pos }).run();
+      }
+    }
+    setMathEdit(null);
+    setMathInput("");
+  }, [editor, mathEdit, mathInput]);
+
+  const handleMathKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      closeMathEdit();
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      // Revert: don't save changes
+      setMathEdit(null);
+      setMathInput("");
+      editor?.commands.focus();
+    }
+  }, [closeMathEdit, editor]);
+
+  // Live-update math as user types
+  useEffect(() => {
+    if (!editor || !mathEdit) return;
+    const trimmed = mathInput.trim();
+    if (!trimmed || trimmed === mathEdit.latex) return;
+    if (mathEdit.type === "inline") {
+      editor.chain().updateInlineMath({ latex: trimmed, pos: mathEdit.pos }).run();
+    } else {
+      editor.chain().updateBlockMath({ latex: trimmed, pos: mathEdit.pos }).run();
+    }
+  }, [mathInput]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!mounted) {
     return null;
@@ -590,7 +689,7 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
             <Button
               variant="ghost"
               size="icon"
-              className={`h-7 w-7 ${editor.isActive("inlineMath") || editor.isActive("blockMath") ? "bg-accent" : ""}`}
+              className="h-7 w-7"
               title="Math (LaTeX)"
             >
               <Sigma className="h-3.5 w-3.5" />
@@ -601,16 +700,41 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
               <button
                 className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-accent flex items-center gap-2"
                 onClick={() => {
-                  editor.chain().focus().insertInlineMath({ latex: "E=mc^2" }).run();
+                  editor.chain().focus().insertInlineMath({ latex: "\\:" }).run();
+                  setTimeout(() => {
+                    if (!editor) return;
+                    const pos = editor.state.selection.from - 1;
+                    const node = editor.state.doc.nodeAt(pos);
+                    if (node && node.type.name === "inlineMath") {
+                      setMathEdit({ pos, latex: "", type: "inline" });
+                      setMathInput("");
+                      setTimeout(() => mathInputRef.current?.focus(), 50);
+                    }
+                  }, 50);
                 }}
               >
                 <span className="font-mono text-[10px] bg-muted px-1 rounded">$...$</span>
                 <span>Inline math</span>
+                <span className="ml-auto text-[10px] text-muted-foreground">⌘⇧E</span>
               </button>
               <button
                 className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-accent flex items-center gap-2"
                 onClick={() => {
-                  editor.chain().focus().insertBlockMath({ latex: "\\sum_{i=1}^{n} x_i" }).run();
+                  editor.chain().focus().insertBlockMath({ latex: "\\:" }).run();
+                  setTimeout(() => {
+                    if (!editor) return;
+                    const { from } = editor.state.selection;
+                    // Search backwards for the block math node
+                    let blockPos: number | null = null;
+                    editor.state.doc.nodesBetween(Math.max(0, from - 5), from + 5, (node, pos) => {
+                      if (node.type.name === "blockMath") blockPos = pos;
+                    });
+                    if (blockPos !== null) {
+                      setMathEdit({ pos: blockPos, latex: "", type: "block" });
+                      setMathInput("");
+                      setTimeout(() => mathInputRef.current?.focus(), 50);
+                    }
+                  }, 50);
                 }}
               >
                 <span className="font-mono text-[10px] bg-muted px-1 rounded">$$...$$</span>
@@ -648,8 +772,68 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
       )}
 
       {/* Editor content */}
-      <div className="tiptap-editor flex-1 overflow-y-auto px-4 py-3">
+      <div className="tiptap-editor relative flex-1 overflow-y-auto px-4 py-3">
         <EditorContent editor={editor} />
+
+        {/* Floating math editor */}
+        {mathEdit && (
+          <div className="math-edit-popover fixed z-50 rounded-lg border bg-popover shadow-lg p-3 w-80"
+            style={{
+              left: "50%",
+              transform: "translateX(-50%)",
+              bottom: "80px",
+            }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <Sigma className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs font-medium text-muted-foreground">
+                {mathEdit.type === "inline" ? "Inline" : "Block"} equation
+              </span>
+              <span className="ml-auto text-[10px] text-muted-foreground">
+                Enter to confirm · Esc to cancel
+              </span>
+            </div>
+            <input
+              ref={mathInputRef}
+              type="text"
+              value={mathInput}
+              onChange={(e) => setMathInput(e.target.value)}
+              onKeyDown={handleMathKeyDown}
+              placeholder="Type LaTeX equation…"
+              className="w-full rounded-md border bg-background px-3 py-1.5 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <div className="flex items-center gap-1.5 mt-2">
+              <Button
+                variant="default"
+                size="sm"
+                className="h-6 text-[10px]"
+                onClick={closeMathEdit}
+              >
+                Done
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[10px] text-destructive"
+                onClick={() => {
+                  if (editor && mathEdit) {
+                    if (mathEdit.type === "inline") {
+                      editor.chain().focus().deleteInlineMath({ pos: mathEdit.pos }).run();
+                    } else {
+                      editor.chain().focus().deleteBlockMath({ pos: mathEdit.pos }).run();
+                    }
+                  }
+                  setMathEdit(null);
+                  setMathInput("");
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Bottom bar */}

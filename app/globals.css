@@ -403,39 +403,43 @@
 }
 
 /* Mathematics / KaTeX nodes */
-.tiptap-editor .ProseMirror .Tiptap-mathematics-editor {
-  background-color: color-mix(in oklch, var(--muted) 60%, transparent);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.15rem 0.4rem;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.85em;
-}
-
-.tiptap-editor .ProseMirror .Tiptap-mathematics-render {
+.tiptap-editor .ProseMirror .tiptap-mathematics-render {
   cursor: pointer;
-}
-
-.tiptap-editor .ProseMirror .Tiptap-mathematics-render--editable {
-  padding: 0.1rem 0.2rem;
+  padding: 0.1rem 0.25rem;
   border-radius: 4px;
   transition: background-color 0.15s;
 }
 
-.tiptap-editor .ProseMirror .Tiptap-mathematics-render--editable:hover {
+.tiptap-editor .ProseMirror .tiptap-mathematics-render--editable {
+  padding: 0.1rem 0.25rem;
+  border-radius: 4px;
+  transition: background-color 0.15s;
+}
+
+.tiptap-editor .ProseMirror .tiptap-mathematics-render--editable:hover {
   background-color: color-mix(in oklch, var(--accent) 50%, transparent);
 }
 
-.tiptap-editor .ProseMirror div[data-type="blockMath"] {
-  margin: 1rem 0;
-  text-align: center;
+.tiptap-editor .ProseMirror .ProseMirror-selectednode .tiptap-mathematics-render,
+.tiptap-editor .ProseMirror span.ProseMirror-selectednode[data-type="inline-math"],
+.tiptap-editor .ProseMirror div.ProseMirror-selectednode[data-type="block-math"] {
+  background-color: color-mix(in oklch, var(--primary) 20%, transparent);
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-radius: 4px;
 }
 
-.tiptap-editor .ProseMirror div[data-type="blockMath"] .Tiptap-mathematics-editor {
-  display: block;
-  padding: 0.5rem 1rem;
-  margin: 0.5rem auto;
-  max-width: 90%;
+.tiptap-editor .ProseMirror div[data-type="block-math"] {
+  margin: 1rem 0;
+  text-align: center;
+  padding: 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.tiptap-editor .ProseMirror div[data-type="block-math"]:hover {
+  background-color: color-mix(in oklch, var(--accent) 30%, transparent);
 }
 
 /* Safe area insets for iPhone notch/home bar */
