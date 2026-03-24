@@ -6,16 +6,8 @@
  * SQL for aggregations, JS for streaks/heatmap.
  */
 
-import { createServerSupabaseClient } from "@/lib/supabase";
+import { createServerSupabaseClient, requireUserId, type PublicSchema } from "@/lib/supabase";
 import type { ExerciseAnalytics, PersonalRecord, PRDistanceBucket } from "@/types";
-
-type PublicSchema = "public";
-
-async function requireUserId(client: Awaited<ReturnType<typeof createServerSupabaseClient>>): Promise<string> {
-  const { data, error } = await client.auth.getUser();
-  if (error || !data.user) throw new Error("Not authenticated");
-  return data.user.id;
-}
 
 export async function calculateExerciseAnalytics(
   range: string

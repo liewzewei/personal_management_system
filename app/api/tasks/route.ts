@@ -27,8 +27,8 @@ export async function GET(request: NextRequest) {
   if (status) filters.status = status;
   if (search) filters.search = search;
   if (sortBy) filters.sortBy = sortBy;
-  if (limit) filters.limit = parseInt(limit, 10);
-  if (offset) filters.offset = parseInt(offset, 10);
+  if (limit) { const n = parseInt(limit, 10); if (!Number.isNaN(n)) filters.limit = n; }
+  if (offset) { const n = parseInt(offset, 10); if (!Number.isNaN(n)) filters.offset = n; }
 
   const result = await getTasks(filters as Parameters<typeof getTasks>[0]);
   if (result.error) {

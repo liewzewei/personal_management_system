@@ -249,7 +249,6 @@ export default function TasksPage() {
   // --- DnD handlers ---
 
   function handleDragStart(event: DragStartEvent) {
-    console.log('drag started', event.active.id);
     setActiveDragId(event.active.id as string);
   }
 
@@ -587,21 +586,20 @@ export default function TasksPage() {
       .filter((sub) => !formIds.has(sub.id))
       .map((sub) => fetch(`/api/tasks/${sub.id}`, { method: "DELETE" }));
 
-    // Parallelize updates
+    // Parallelize updates (flatMap to skip unchanged items without no-op promises)
     const updatePromises = formItems
       .filter((item) => item.id && existingIds.has(item.id))
-      .map((item) => {
+      .flatMap((item) => {
         const orig = existing.find((s) => s.id === item.id);
         if (orig && (orig.title !== item.title || orig.status !== item.status)) {
-          return fetch(`/api/tasks/${item.id}`, {
+          return [fetch(`/api/tasks/${item.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ title: item.title, status: item.status }),
-          });
+          })];
         }
-        return Promise.resolve();
-      })
-      .filter((p) => p !== Promise.resolve());
+        return [];
+      });
 
     // Parallelize creates
     const createPromises = formItems

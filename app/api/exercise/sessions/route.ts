@@ -30,8 +30,8 @@ export async function GET(request: NextRequest) {
   if (type) filters.type = type;
   if (from) filters.from = from;
   if (to) filters.to = to;
-  if (limit) filters.limit = parseInt(limit, 10);
-  if (offset) filters.offset = parseInt(offset, 10);
+  if (limit) { const n = parseInt(limit, 10); if (!Number.isNaN(n)) filters.limit = n; }
+  if (offset) { const n = parseInt(offset, 10); if (!Number.isNaN(n)) filters.offset = n; }
 
   const result = await getExerciseSessions(filters as Parameters<typeof getExerciseSessions>[0]);
   if (result.error) {

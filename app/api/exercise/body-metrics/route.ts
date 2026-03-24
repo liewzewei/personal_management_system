@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   const limit = params.get("limit");
   if (from) filters.from = from;
   if (to) filters.to = to;
-  if (limit) filters.limit = parseInt(limit, 10);
+  if (limit) { const n = parseInt(limit, 10); if (!Number.isNaN(n)) filters.limit = n; }
 
   const result = await getBodyMetrics(filters as Parameters<typeof getBodyMetrics>[0]);
   if (result.error) {

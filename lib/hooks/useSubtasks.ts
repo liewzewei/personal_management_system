@@ -18,6 +18,7 @@ export function useSubtasks(parentTaskId: string | null, enabled = true) {
     queryFn: async () => {
       const res = await fetch(`/api/tasks/${parentTaskId}/subtasks`);
       const body = (await res.json()) as { data: Task[] | null; error: string | null };
+      if (!res.ok || body.error) throw new Error(body.error ?? "Failed to fetch subtasks");
       return body.data ?? [];
     },
     enabled: !!parentTaskId && enabled,

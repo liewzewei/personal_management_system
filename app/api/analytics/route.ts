@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getTasksForAnalytics } from "@/lib/supabase";
 import { calculateAnalytics } from "@/lib/analytics";
-import { subDays, subMonths, subYears } from "date-fns";
+import { subDays, subYears } from "date-fns";
 
 const querySchema = z.object({
   range: z.enum(["30d", "90d", "1y", "all"]).default("30d"),

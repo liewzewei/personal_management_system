@@ -37,7 +37,7 @@ import type { BodyMetric, CalendarEvent, CalendarEventInput, DailyNutritionSumma
 import type { PRDistanceBucket } from "@/types";
 import { calculatePace, getDistanceBucket } from "@/lib/exercise-utils";
 
-type PublicSchema = "public";
+export type PublicSchema = "public";
 
 function getRequiredEnv(name: string): string {
   const value = process.env[name];
@@ -103,7 +103,7 @@ function asError(message: string, cause: unknown): Error {
   return new Error(message);
 }
 
-async function requireUserId(client: SupabaseClient): Promise<string> {
+export async function requireUserId(client: SupabaseClient): Promise<string> {
   const { data, error } = await client.auth.getUser();
   if (error) throw asError("Failed to read authenticated user", error);
   if (!data.user) throw new Error("Not authenticated");
@@ -375,7 +375,7 @@ export async function createTask(taskData: TaskInput & { title: string }): Promi
 export async function updateTask(taskId: string, updates: TaskInput): Promise<SupabaseQueryResult<Task>> {
   try {
     const client = await createServerSupabaseClient();
-    await requireUserId(client);
+    const userId = await requireUserId(client);
 
     // If status is being set to 'done', also set completed_at
     const extra: Record<string, unknown> = {};
@@ -396,7 +396,6 @@ export async function updateTask(taskId: string, updates: TaskInput): Promise<Su
     if (error) return { data: null, error: asError("Failed to update task", error) };
 
     const updatedTask = data as unknown as Task;
-    const userId = await requireUserId(client);
 
     // Calendar sync: handle deadline changes
     try {
@@ -934,6 +933,46 @@ export async function getOutlookEventsForFeed(
     return { data: data as unknown as CalendarEvent[], error: null };
   } catch (cause) {
     return { data: null, error: asError("Failed to fetch outlook events for feed", cause) };
+  }
+}
+
+/**
+ * Batch upserts multiple outlook calendar events in a single Supabase call.
+ * Used by iCal sync to efficiently handle large feeds.
+ * Caller is responsible for chunking into batches of ≤500 rows.
+ */
+export async function batchUpsertOutlookCalendarEvents(
+  userId: string,
+  rows: {
+    outlook_event_id: string;
+    outlook_calendar_id: string;
+    title: string;
+    description: string | null;
+    start_time: string;
+    end_time: string;
+    is_all_day: boolean;
+    calendar_type: string;
+  }[]
+): Promise<SupabaseQueryResult<number>> {
+  try {
+    const client = await createServerSupabaseClient();
+
+    const fullRows = rows.map((r) => ({
+      user_id: userId,
+      source: "outlook" as const,
+      ...r,
+    }));
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("calendar_events")
+      .upsert(fullRows, { onConflict: "outlook_event_id" })
+      .select("id");
+
+    if (error) return { data: null, error: asError("Batch upsert failed", error) };
+    return { data: data?.length ?? 0, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Batch upsert failed", cause) };
   }
 }
 
