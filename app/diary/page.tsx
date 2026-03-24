@@ -194,7 +194,8 @@ export default function DiaryPage() {
         };
       }
     );
-    setActiveEntry(updated);
+    // Only update activeEntry if the user hasn't navigated away to a different entry
+    setActiveEntry((current) => (current?.id === updated.id ? updated : current));
     queryClient.invalidateQueries({ queryKey: ["tags"] });
   }, [queryClient]);
 
