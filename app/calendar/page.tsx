@@ -16,7 +16,7 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
-import type { DateSelectArg, EventClickArg, DatesSetArg, EventInput } from "@fullcalendar/core";
+import type { DateSelectArg, EventClickArg, DatesSetArg, EventInput, EventContentArg } from "@fullcalendar/core";
 import { RefreshCw, Check, AlertTriangle, Settings, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -69,6 +69,7 @@ export default function CalendarPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [defaultStart, setDefaultStart] = useState<string | null>(null);
+  const [defaultEnd, setDefaultEnd] = useState<string | null>(null);
   const [defaultAllDay, setDefaultAllDay] = useState(false);
 
   // Feature sidebar state
@@ -139,6 +140,27 @@ export default function CalendarPage() {
     }
     return counts;
   }, [events]);
+
+  // Custom event content renderer — keeps time label visible next to title
+  const renderEventContent = useCallback((arg: EventContentArg) => {
+    const timeText = arg.timeText; // already formatted by eventTimeFormat
+    const title = arg.event.title;
+    if (arg.view.type === "dayGridMonth") {
+      return (
+        <div className="fc-custom-event fc-custom-event--month">
+          {timeText && <span className="fc-custom-time">{timeText}</span>}
+          <span className="fc-custom-title">{title}</span>
+        </div>
+      );
+    }
+    // timeGrid views (week / day)
+    return (
+      <div className="fc-custom-event fc-custom-event--time">
+        {timeText && <div className="fc-custom-time">{timeText}</div>}
+        <div className="fc-custom-title">{title}</div>
+      </div>
+    );
+  }, []);
 
   // Convert events to FullCalendar format
   const fcEvents: EventInput[] = useMemo(() => {
@@ -214,6 +236,7 @@ export default function CalendarPage() {
     const calEvent = arg.event.extendedProps.calendarEvent as CalendarEvent;
     setEditingEvent(calEvent);
     setDefaultStart(null);
+    setDefaultEnd(null);
     setDefaultAllDay(false);
     setModalOpen(true);
   }
@@ -222,6 +245,7 @@ export default function CalendarPage() {
   function handleDateSelect(arg: DateSelectArg) {
     setEditingEvent(null);
     setDefaultStart(arg.startStr);
+    setDefaultEnd(arg.endStr);
     setDefaultAllDay(arg.allDay);
     setModalOpen(true);
     // Deselect the range
@@ -460,6 +484,13 @@ export default function CalendarPage() {
               height="100%"
               eventDisplay="block"
               nowIndicator={true}
+              eventTimeFormat={{
+                hour: "numeric",
+                minute: "2-digit",
+                meridiem: "short",
+                omitZeroMinute: true,
+              }}
+              eventContent={renderEventContent}
             />
           </div>
         </div>
@@ -483,6 +514,7 @@ export default function CalendarPage() {
         onOpenChange={setModalOpen}
         event={editingEvent}
         defaultStart={defaultStart}
+        defaultEnd={defaultEnd}
         defaultAllDay={defaultAllDay}
         calendarTypes={calendarTypes}
         onSave={handleSave}

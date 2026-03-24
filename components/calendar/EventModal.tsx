@@ -37,6 +37,8 @@ interface EventModalProps {
   event?: CalendarEvent | null;
   /** Pre-filled start time when creating from a calendar slot click. */
   defaultStart?: string | null;
+  /** Pre-filled end time when creating from a calendar drag selection. */
+  defaultEnd?: string | null;
   /** Pre-filled all-day flag when clicking the all-day row. */
   defaultAllDay?: boolean;
   /** All known calendar types for autocomplete. */
@@ -68,6 +70,7 @@ export function EventModal({
   onOpenChange,
   event,
   defaultStart,
+  defaultEnd,
   defaultAllDay,
   calendarTypes,
   onSave,
@@ -117,10 +120,13 @@ export function EventModal({
         const dt = toDatetimeLocal(defaultStart);
         setStartDate(dt.slice(0, 10));
         setStartTime(dt.slice(11, 16));
-        // Default end = start + 1 hour
-        const endDt = new Date(defaultStart);
-        endDt.setHours(endDt.getHours() + 1);
-        const endFormatted = toDatetimeLocal(endDt.toISOString());
+        // Use drag-selected end time if available, otherwise default to start + 1 hour
+        const endSource = defaultEnd ? defaultEnd : (() => {
+          const endDt = new Date(defaultStart);
+          endDt.setHours(endDt.getHours() + 1);
+          return endDt.toISOString();
+        })();
+        const endFormatted = toDatetimeLocal(endSource);
         setEndDate(endFormatted.slice(0, 10));
         setEndTime(endFormatted.slice(11, 16));
       } else {
@@ -136,7 +142,7 @@ export function EventModal({
     }
     setSaving(false);
     setConfirmDelete(false);
-  }, [event, defaultStart, defaultAllDay]);
+  }, [event, defaultStart, defaultEnd, defaultAllDay]);
 
   useEffect(() => {
     if (open) resetForm();

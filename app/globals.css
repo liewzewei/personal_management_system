@@ -219,10 +219,48 @@
   font-weight: 600;
 }
 
+/* Custom event content layout — time always visible */
+.fc-custom-event {
+  overflow: hidden;
+  line-height: 1.3;
+}
+
+.fc-custom-event--month {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.fc-custom-event--time {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  padding: 1px 0;
+}
+
+.fc-custom-time {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  opacity: 0.95;
+  text-transform: uppercase;
+}
+
+.fc-custom-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 /* Tiptap editor styles */
 .tiptap-editor .ProseMirror {
   outline: none;
-  min-height: 300px;
+  height: 100%;
+  min-height: 200px;
 }
 
 .tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
