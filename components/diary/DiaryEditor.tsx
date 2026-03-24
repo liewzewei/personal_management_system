@@ -163,6 +163,11 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
 
   // Reset state when entry changes
   useEffect(() => {
+    // Cancel any pending save from the previous entry to prevent stale saves
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
     entryIdRef.current = entry.id;
     setTitle(entry.title ?? "");
     setTags(entry.tags ?? []);
@@ -430,7 +435,7 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
   const wordCount = editor.storage.characterCount.words();
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col min-h-0">
       {/* Mobile back button */}
       {onBack && (
         <div className="shrink-0 border-b p-2 md:hidden">
@@ -772,7 +777,7 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
       )}
 
       {/* Editor content */}
-      <div className="tiptap-editor relative flex-1 overflow-y-auto px-4 py-3">
+      <div className="tiptap-editor relative flex-1 overflow-y-auto min-h-0 px-4 py-3">
         <EditorContent editor={editor} />
 
         {/* Floating math editor */}

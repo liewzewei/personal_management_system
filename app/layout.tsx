@@ -47,7 +47,7 @@ export default async function RootLayout({
       <body className="min-h-screen bg-background text-foreground antialiased">
         <QueryProvider>
           <TooltipProvider>
-            <SidebarProvider defaultOpen={defaultOpen}>
+            <SidebarProvider defaultOpen={defaultOpen} className="!h-svh">
               <AppSidebar />
               <SidebarInset className="flex-1 overflow-y-auto min-w-0 pb-16 md:pb-0">
                 {children}
