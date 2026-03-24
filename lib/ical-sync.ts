@@ -25,11 +25,25 @@ import {
   getIcalFeeds,
   getIcalFeedById,
   getOutlookEventsForFeed,
+  batchUpsertOutlookCalendarEvents,
   upsertOutlookCalendarEvent,
   deleteCalendarEventById,
   updateIcalFeedLastSynced,
 } from "@/lib/supabase";
 import type { CalendarEvent, SyncResult } from "@/types";
+
+/** Maximum number of rows per Supabase upsert call (Supabase recommends ≤500). */
+const UPSERT_BATCH_SIZE = 500;
+
+/** Fetch timeout in milliseconds for downloading .ics files. */
+const FETCH_TIMEOUT_MS = 60_000;
+
+/** How far back/forward (in months) to expand recurring events. */
+const RECURRENCE_MONTHS_BACK = 3;
+const RECURRENCE_MONTHS_FORWARD = 6;
+
+/** Separator used to make occurrence UIDs unique: `<baseUID>__<startISO>`. */
+const RECURRING_UID_SEP = "__";
 
 /** Parsed iCal event shape used internally. */
 interface ICalParsedEvent {
@@ -53,24 +67,50 @@ export async function fetchAndParseIcal(icalUrl: string): Promise<ICalParsedEven
   let rawText: string;
 
   try {
-    const response = await fetch(icalUrl, { cache: "no-store" });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    const response = await fetch(icalUrl, {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        "Accept": "text/calendar, text/plain, */*",
+        "Accept-Charset": "utf-8",
+      },
+    });
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
     rawText = await response.text();
   } catch (cause) {
     const msg = cause instanceof Error ? cause.message : String(cause);
-    throw new Error(`Could not reach Outlook. Check the URL in Settings or try again later. (${msg})`);
+    const isTimeout = cause instanceof DOMException && cause.name === "AbortError";
+    const detail = isTimeout
+      ? `Request timed out after ${FETCH_TIMEOUT_MS / 1000}s — the feed may be very large or the server slow.`
+      : msg;
+    console.error(`[iCal Sync] Failed to fetch feed URL: ${detail}`);
+    throw new Error(`Could not reach Outlook. Check the URL in Settings or try again later. (${detail})`);
   }
 
   let parsed: ical.CalendarResponse;
   try {
     parsed = ical.sync.parseICS(rawText);
-  } catch {
+  } catch (cause) {
+    const msg = cause instanceof Error ? cause.message : String(cause);
+    console.error(`[iCal Sync] Failed to parse .ics data (${rawText.length} chars): ${msg}`);
     throw new Error("Could not parse calendar data. Make sure the URL points to a valid .ics file.");
   }
 
   const events: ICalParsedEvent[] = [];
+
+  // Build a date window for expanding recurring events
+  const now = new Date();
+  const expandFrom = new Date(now);
+  expandFrom.setMonth(expandFrom.getMonth() - RECURRENCE_MONTHS_BACK);
+  const expandTo = new Date(now);
+  expandTo.setMonth(expandTo.getMonth() + RECURRENCE_MONTHS_FORWARD);
 
   for (const key of Object.keys(parsed)) {
     const component = parsed[key];
@@ -94,7 +134,44 @@ export async function fetchAndParseIcal(icalUrl: string): Promise<ICalParsedEven
         ? String((rawDesc as { val: string }).val)
         : null;
 
-    // Determine if all-day: node-ical sets `datetype` to "date" for all-day events
+    // Recurring event — expand into individual occurrences
+    if (vevent.rrule) {
+      try {
+        const instances = ical.expandRecurringEvent(vevent, {
+          from: expandFrom,
+          to: expandTo,
+        });
+
+        for (const instance of instances) {
+          const instStart = instance.start instanceof Date ? instance.start : new Date(String(instance.start));
+          const instEnd = instance.end instanceof Date ? instance.end : new Date(String(instance.end));
+
+          events.push({
+            uid: `${uid}${RECURRING_UID_SEP}${instStart.toISOString()}`,
+            title,
+            description,
+            start: instStart,
+            end: instEnd,
+            isAllDay: instance.isFullDay,
+            recurrenceRule: null,
+          });
+        }
+      } catch (err) {
+        // Fallback: if expansion fails, store the master event as a single occurrence
+        console.warn(`[iCal Sync] Failed to expand recurring event "${title}" (${uid}): ${err instanceof Error ? err.message : String(err)}`);
+        const startRaw = vevent.start;
+        const endRaw = vevent.end ?? vevent.start;
+        const start = startRaw instanceof Date ? startRaw : new Date(String(startRaw));
+        const end = endRaw instanceof Date ? endRaw : new Date(String(endRaw));
+        const isAllDay = Boolean(
+          startRaw && typeof startRaw === "object" && "dateOnly" in startRaw && (startRaw as { dateOnly?: boolean }).dateOnly
+        );
+        events.push({ uid, title, description, start, end, isAllDay, recurrenceRule: null });
+      }
+      continue;
+    }
+
+    // Non-recurring event — single occurrence
     const startRaw = vevent.start;
     const endRaw = vevent.end ?? vevent.start;
 
@@ -105,16 +182,6 @@ export async function fetchAndParseIcal(icalUrl: string): Promise<ICalParsedEven
     const start = startRaw instanceof Date ? startRaw : new Date(String(startRaw));
     const end = endRaw instanceof Date ? endRaw : new Date(String(endRaw));
 
-    // Extract RRULE if present
-    let recurrenceRule: string | null = null;
-    if (vevent.rrule) {
-      try {
-        recurrenceRule = vevent.rrule.toString();
-      } catch {
-        recurrenceRule = null;
-      }
-    }
-
     events.push({
       uid,
       title,
@@ -122,7 +189,7 @@ export async function fetchAndParseIcal(icalUrl: string): Promise<ICalParsedEven
       start,
       end,
       isAllDay,
-      recurrenceRule,
+      recurrenceRule: null,
     });
   }
 
@@ -147,26 +214,37 @@ export async function syncIcalToLocal(userId: string, feedId: string): Promise<S
   // 1. Fetch feed config
   const feedResult = await getIcalFeedById(feedId);
   if (feedResult.error || !feedResult.data) {
-    result.errors.push(feedResult.error?.message ?? "Feed not found");
+    const errMsg = feedResult.error?.message ?? "Feed not found";
+    console.error(`[iCal Sync] Feed ${feedId}: ${errMsg}`);
+    result.errors.push(errMsg);
     return result;
   }
   const feed = feedResult.data;
+  const feedLabel = `"${feed.name}" (${feed.calendar_type})`;
 
   if (!feed.is_active) {
+    console.warn(`[iCal Sync] Skipping inactive feed ${feedLabel}`);
     return result;
   }
 
   // 2. Parse iCal
   let parsedEvents: ICalParsedEvent[];
   try {
+    console.log(`[iCal Sync] Fetching feed ${feedLabel}...`);
     parsedEvents = await fetchAndParseIcal(feed.ical_url);
+    console.log(`[iCal Sync] Parsed ${parsedEvents.length} events from ${feedLabel}`);
   } catch (err) {
-    result.errors.push(err instanceof Error ? err.message : String(err));
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[iCal Sync] Feed ${feedLabel} failed: ${errMsg}`);
+    result.errors.push(errMsg);
     return result;
   }
 
   // 3. Fetch existing events for this feed
   const existingResult = await getOutlookEventsForFeed(userId, feedId);
+  if (existingResult.error) {
+    console.error(`[iCal Sync] Failed to fetch existing events for ${feedLabel}: ${existingResult.error.message}`);
+  }
   const existingEvents = existingResult.data ?? [];
 
   // Build a map: outlook_event_id (uid) → calendar_event row
@@ -180,12 +258,26 @@ export async function syncIcalToLocal(userId: string, feedId: string): Promise<S
   // Track which UIDs we see in this sync
   const seenUids = new Set<string>();
 
-  // 4. Upsert events
+  // 4. Collect events to upsert — separate new from changed for accurate counts
+  type EventRow = {
+    outlook_event_id: string;
+    outlook_calendar_id: string;
+    title: string;
+    description: string | null;
+    start_time: string;
+    end_time: string;
+    is_all_day: boolean;
+    calendar_type: string;
+  };
+
+  const newRows: EventRow[] = [];
+  const changedRows: EventRow[] = [];
+
   for (const icalEvent of parsedEvents) {
     seenUids.add(icalEvent.uid);
     const existing = existingMap.get(icalEvent.uid);
 
-    const eventData = {
+    const eventData: EventRow = {
       outlook_event_id: icalEvent.uid,
       outlook_calendar_id: feedId,
       title: icalEvent.title,
@@ -197,7 +289,6 @@ export async function syncIcalToLocal(userId: string, feedId: string): Promise<S
     };
 
     if (existing) {
-      // Check if anything changed
       const changed =
         existing.title !== eventData.title ||
         existing.description !== eventData.description ||
@@ -206,43 +297,66 @@ export async function syncIcalToLocal(userId: string, feedId: string): Promise<S
         existing.is_all_day !== eventData.is_all_day;
 
       if (changed) {
-        const upsertResult = await upsertOutlookCalendarEvent(userId, eventData);
-        if (upsertResult.error) {
-          result.errors.push(`Update failed for "${icalEvent.title}": ${upsertResult.error.message}`);
-        } else {
-          result.updated++;
-        }
+        changedRows.push(eventData);
       }
     } else {
-      // New event
-      const upsertResult = await upsertOutlookCalendarEvent(userId, eventData);
-      if (upsertResult.error) {
-        result.errors.push(`Insert failed for "${icalEvent.title}": ${upsertResult.error.message}`);
-      } else {
-        result.added++;
+      newRows.push(eventData);
+    }
+  }
+
+  // Batch upsert new + changed events in chunks of UPSERT_BATCH_SIZE
+  const allUpsertRows = [...newRows, ...changedRows];
+  if (allUpsertRows.length > 0) {
+    console.log(`[iCal Sync] ${feedLabel}: upserting ${allUpsertRows.length} events (${newRows.length} new, ${changedRows.length} changed) in batches of ${UPSERT_BATCH_SIZE}`);
+
+    for (let i = 0; i < allUpsertRows.length; i += UPSERT_BATCH_SIZE) {
+      const chunk = allUpsertRows.slice(i, i + UPSERT_BATCH_SIZE);
+      const batchResult = await batchUpsertOutlookCalendarEvents(userId, chunk);
+      if (batchResult.error) {
+        const errMsg = `Batch upsert failed for ${feedLabel} (chunk ${Math.floor(i / UPSERT_BATCH_SIZE) + 1}): ${batchResult.error.message}`;
+        console.error(`[iCal Sync] ${errMsg}`);
+        result.errors.push(errMsg);
+        // Fall back to individual upserts for this chunk
+        console.warn(`[iCal Sync] Falling back to individual upserts for chunk of ${chunk.length} events`);
+        for (const row of chunk) {
+          const individual = await upsertOutlookCalendarEvent(userId, row);
+          if (individual.error) {
+            const rowErr = `Upsert failed for "${row.title}": ${individual.error.message}`;
+            console.error(`[iCal Sync] ${rowErr}`);
+            result.errors.push(rowErr);
+          }
+        }
       }
     }
   }
 
+  // Update counts based on intent (new vs changed)
+  result.added = newRows.length;
+  result.updated = changedRows.length;
+
   // 5. Delete events that are no longer in the iCal feed
-  for (const [uid, existingEvt] of existingMap) {
-    if (!seenUids.has(uid)) {
-      try {
-        await deleteCalendarEventById(userId, existingEvt.id);
-        result.deleted++;
-      } catch {
-        result.errors.push(`Delete failed for event ${existingEvt.id}`);
-      }
+  const toDelete = [...existingMap.entries()].filter(([uid]) => !seenUids.has(uid));
+  for (const [, existingEvt] of toDelete) {
+    try {
+      await deleteCalendarEventById(userId, existingEvt.id);
+      result.deleted++;
+    } catch (err) {
+      const errMsg = `Delete failed for event ${existingEvt.id}: ${err instanceof Error ? err.message : String(err)}`;
+      console.error(`[iCal Sync] ${errMsg}`);
+      result.errors.push(errMsg);
     }
   }
 
   // 6. Update last_synced_at
   try {
     await updateIcalFeedLastSynced(feedId);
-  } catch {
-    result.errors.push("Failed to update last_synced_at");
+  } catch (err) {
+    const errMsg = `Failed to update last_synced_at for ${feedLabel}: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`[iCal Sync] ${errMsg}`);
+    result.errors.push(errMsg);
   }
 
+  console.log(`[iCal Sync] ${feedLabel} complete: +${result.added} added, ~${result.updated} updated, -${result.deleted} deleted, ${result.errors.length} errors`);
   return result;
 }
 
@@ -254,7 +368,12 @@ export async function syncIcalToLocal(userId: string, feedId: string): Promise<S
  */
 export async function syncAllFeeds(userId: string): Promise<SyncResult[]> {
   const feedsResult = await getIcalFeeds();
+  if (feedsResult.error) {
+    console.error(`[iCal Sync] Failed to fetch feeds: ${feedsResult.error.message}`);
+    return [{ added: 0, updated: 0, deleted: 0, errors: [feedsResult.error.message] }];
+  }
   const feeds = feedsResult.data ?? [];
+  console.log(`[iCal Sync] Starting sync for ${feeds.filter((f) => f.is_active).length} active feed(s)`);
 
   const results: SyncResult[] = [];
   for (const feed of feeds) {
@@ -263,11 +382,13 @@ export async function syncAllFeeds(userId: string): Promise<SyncResult[]> {
       const syncResult = await syncIcalToLocal(userId, feed.id);
       results.push(syncResult);
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[iCal Sync] Unhandled error syncing feed "${feed.name}": ${errMsg}`);
       results.push({
         added: 0,
         updated: 0,
         deleted: 0,
-        errors: [err instanceof Error ? err.message : String(err)],
+        errors: [errMsg],
       });
     }
   }
