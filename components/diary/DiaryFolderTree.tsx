@@ -183,7 +183,7 @@ export function DiaryEntryTreeRow({
                 onClick={(e) => e.stopPropagation()}
               />
             ) : (
-              <span className={cn("truncate", !displayTitle && "text-muted-foreground")}>{displayTitle ?? "Untitled"}</span>
+              <span className={cn("truncate select-none cursor-default", !displayTitle && "text-muted-foreground")}>{displayTitle ?? "Untitled"}</span>
             )}
           </div>
         </div>
@@ -330,7 +330,7 @@ function DiaryFolderRow(props: DiaryFolderTreeProps & { folder: DiaryFolder; dep
                   onClick={(e) => e.stopPropagation()}
                 />
               ) : (
-                <span className="truncate font-medium">{folder.name}</span>
+                <span className="truncate font-medium select-none cursor-default">{folder.name}</span>
               )}
             </div>
           </div>
