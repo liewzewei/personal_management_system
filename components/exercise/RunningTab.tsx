@@ -65,6 +65,7 @@ export function RunningTab({ distanceUnit = "km", weightKg }: RunningTabProps) {
   // When editing session data loads, open the modal
   useEffect(() => {
     if (editingSession && editingSessionId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLogModalOpen(true);
     }
   }, [editingSession, editingSessionId]);
@@ -114,7 +115,7 @@ export function RunningTab({ distanceUnit = "km", weightKg }: RunningTabProps) {
         updateSession.mutate(
           { sessionId: editingSessionId, updates: data },
           {
-            onSuccess: (result) => {
+            onSuccess: () => {
               setLogModalOpen(false);
               setEditingSessionId(null);
               toast({ title: "Run updated" });
@@ -174,7 +175,7 @@ export function RunningTab({ distanceUnit = "km", weightKg }: RunningTabProps) {
         });
       }
     },
-    [editingSessionId, createSession, updateSession, toast]
+    [editingSessionId, createSession, updateSession, toast, router, distanceUnit]
   );
 
   const handleEdit = useCallback((sessionId: string) => {

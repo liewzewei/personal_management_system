@@ -27,7 +27,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@/types";
 
 interface EventModalProps {
@@ -145,6 +144,7 @@ export function EventModal({
   }, [event, defaultStart, defaultEnd, defaultAllDay]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open) resetForm();
   }, [open, resetForm]);
 

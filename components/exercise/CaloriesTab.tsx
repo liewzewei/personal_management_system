@@ -87,6 +87,7 @@ export function CaloriesTab({ preferences, onPreferencesUpdate }: CaloriesTabPro
   // Show BMR setup on first visit if not configured
   useEffect(() => {
     if (preferences && !preferences.bmr_calories) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setBmrModalOpen(true);
     }
   }, [preferences]);
@@ -94,6 +95,7 @@ export function CaloriesTab({ preferences, onPreferencesUpdate }: CaloriesTabPro
   // Load most recent weight into input
   useEffect(() => {
     if (recentMetrics && recentMetrics.length > 0 && recentMetrics[0].weight_kg) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setWeightInput(String(recentMetrics[0].weight_kg));
     }
   }, [recentMetrics]);

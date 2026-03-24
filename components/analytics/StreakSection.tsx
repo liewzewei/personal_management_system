@@ -8,7 +8,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { format, getDay, startOfWeek, addDays, subWeeks } from "date-fns";
+import { format, startOfWeek, addDays, subWeeks } from "date-fns";
 
 interface StreakSectionProps {
   data: {

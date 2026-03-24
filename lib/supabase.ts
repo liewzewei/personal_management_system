@@ -86,6 +86,7 @@ export function createServiceRoleClient(): SupabaseClient {
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function createAnonServerClient(): SupabaseClient {
   return createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
     auth: { persistSession: false },

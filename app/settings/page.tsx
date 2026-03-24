@@ -77,7 +77,7 @@ export default function SettingsPage() {
   const [formSaving, setFormSaving] = useState(false);
 
   // Preferences state
-  const [prefs, setPrefs] = useState<UserPreferences | null>(null);
+  const [_prefs, setPrefs] = useState<UserPreferences | null>(null); // eslint-disable-line @typescript-eslint/no-unused-vars
   const [defaultView, setDefaultView] = useState("dayGridMonth");
   const [weekStartsOn, setWeekStartsOn] = useState("monday");
   const [savingPrefs, setSavingPrefs] = useState(false);

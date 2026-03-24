@@ -60,6 +60,7 @@ export function BMRSetupModal({ open, onOpenChange, initialData, onSave }: BMRSe
 
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHeightCm(initialData?.height_cm ? String(initialData.height_cm) : "");
     setWeightKg(initialData?.weight_kg ? String(initialData.weight_kg) : "");
     setAge(initialData?.age ? String(initialData.age) : "");

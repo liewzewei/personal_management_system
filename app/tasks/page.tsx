@@ -138,7 +138,7 @@ export default function TasksPage() {
   const { toast } = useToast();
   const { tags: userTags } = useTags("tasks");
   const { data: tagCounts } = useTaskTagCounts();
-  const { updateTask: updateTaskMutation, deleteTask: deleteTaskMutation, duplicateTask: duplicateTaskMutation } = useTaskMutation();
+  const { deleteTask: deleteTaskMutation, duplicateTask: duplicateTaskMutation } = useTaskMutation();
   const scrollSentinelRef = useRef<HTMLDivElement>(null);
 
   // Build API filters — no status filter for Kanban (we need all statuses)

@@ -91,6 +91,7 @@ export function SwimLogModal({
     if (!open) return;
 
     if (session) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDate(session.date);
       setIsOpenWater(!session.pool_length_metres);
       setPoolLength(session.pool_length_metres ?? 50);

@@ -8,7 +8,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -125,6 +125,7 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
       Placeholder.configure({ placeholder: "Write something..." }),
       CharacterCount,
       CodeBlockLowlight.configure({ lowlight }),
+      // eslint-disable-next-line react-hooks/refs
       Mathematics.configure({
         katexOptions: { throwOnError: false },
         inlineOptions: {
@@ -286,19 +287,6 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
     return () => window.removeEventListener("keydown", handleKey);
   }, [doSave, editor]);
 
-  // Close math editor on outside click
-  useEffect(() => {
-    if (!mathEdit) return;
-    const handle = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.closest(".math-edit-popover")) return;
-      if (target.closest(".tiptap-mathematics-render")) return;
-      closeMathEdit();
-    };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  });
-
   const closeMathEdit = useCallback(() => {
     if (!editor || !mathEdit) {
       setMathEdit(null);
@@ -324,6 +312,19 @@ export function DiaryEditor({ entry, allTags, onSaved, onBack }: DiaryEditorProp
     setMathEdit(null);
     setMathInput("");
   }, [editor, mathEdit, mathInput]);
+
+  // Close math editor on outside click
+  useEffect(() => {
+    if (!mathEdit) return;
+    const handle = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest(".math-edit-popover")) return;
+      if (target.closest(".tiptap-mathematics-render")) return;
+      closeMathEdit();
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  });
 
   const handleMathKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {

@@ -10,7 +10,6 @@ import {
   endOfDay,
   subDays,
   subWeeks,
-  addDays,
   differenceInDays,
   differenceInCalendarDays,
   format,
@@ -21,8 +20,6 @@ import {
   isWithinInterval,
   eachDayOfInterval,
   isBefore,
-  isAfter,
-  isEqual,
 } from "date-fns";
 
 import type { Task } from "@/types";

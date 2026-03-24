@@ -7,7 +7,7 @@
  */
 
 import { createServerSupabaseClient, requireUserId, type PublicSchema } from "@/lib/supabase";
-import type { ExerciseAnalytics, PersonalRecord, PRDistanceBucket } from "@/types";
+import type { ExerciseAnalytics, PersonalRecord } from "@/types";
 
 export async function calculateExerciseAnalytics(
   range: string

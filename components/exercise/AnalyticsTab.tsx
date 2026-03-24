@@ -8,7 +8,7 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Trophy, Flame, TrendingUp } from "lucide-react";
 import {

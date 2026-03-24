@@ -55,7 +55,6 @@ function getOverdueDays(deadline: string): number {
 
 function formatDeadline(deadline: string): { text: string; className: string } | null {
   const date = parseISO(deadline);
-  const now = new Date();
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const tomorrowStart = new Date(todayStart);

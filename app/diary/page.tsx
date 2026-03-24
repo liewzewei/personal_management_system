@@ -134,7 +134,7 @@ export default function DiaryPage() {
         toast({ title: "Failed to delete entry", variant: "destructive" });
       },
     });
-  }, [deleteEntry, activeEntry?.id, toast]);
+  }, [deleteEntry, activeEntry, toast]);
 
   const handleRenameEntry = useCallback(
     (id: string, title: string | null) => {

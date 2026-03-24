@@ -237,7 +237,7 @@ function DiaryFolderRow(props: DiaryFolderTreeProps & { folder: DiaryFolder; dep
     renaming,
     draggingType,
     isCollapsed,
-    draggingFolderId,
+    draggingFolderId: _draggingFolderId, // eslint-disable-line @typescript-eslint/no-unused-vars
     onToggleFolder,
     onSelectEntry,
     onStartRenameFolder,

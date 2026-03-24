@@ -52,6 +52,7 @@ export function SwimmingTab({ distanceUnit = "km", weightKg }: SwimmingTabProps)
 
   useEffect(() => {
     if (editingSession && editingSessionId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLogModalOpen(true);
     }
   }, [editingSession, editingSessionId]);
@@ -150,7 +151,7 @@ export function SwimmingTab({ distanceUnit = "km", weightKg }: SwimmingTabProps)
         });
       }
     },
-    [editingSessionId, createSession, updateSession, toast]
+    [editingSessionId, createSession, updateSession, toast, router]
   );
 
   const handleEdit = useCallback((sessionId: string) => {

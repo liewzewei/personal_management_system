@@ -88,6 +88,7 @@ export function RunLogModal({
     if (!open) return;
 
     if (session) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDate(session.date);
       const distMetres = session.distance_metres ?? 0;
       setDistance(

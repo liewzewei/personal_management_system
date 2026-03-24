@@ -8,7 +8,6 @@
 
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
 import { format, parseISO, differenceInDays, isToday, isPast } from "date-fns";
 import { Pencil } from "lucide-react";
 import {
@@ -26,7 +25,7 @@ import { LinkedDescription } from "@/components/tasks/LinkedDescription";
 import { useSubtasks } from "@/lib/hooks/useSubtasks";
 import { useToggleSubtask } from "@/lib/hooks/useToggleSubtask";
 import { useToast } from "@/lib/hooks/use-toast";
-import type { Task, TaskWithSubtasks } from "@/types";
+import type { Task } from "@/types";
 
 interface TaskDetailPanelProps {
   open: boolean;

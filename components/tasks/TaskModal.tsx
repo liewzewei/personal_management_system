@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { Task, TaskWithSubtasks } from "@/types";
+import type { TaskWithSubtasks } from "@/types";
 
 interface TaskModalProps {
   open: boolean;
@@ -200,6 +200,7 @@ export function TaskModal({ open, onOpenChange, task, allTags, onSave, onDelete 
   }, [task]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open) resetForm();
   }, [open, resetForm]);
 
