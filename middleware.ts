@@ -19,7 +19,14 @@ export async function middleware(request: NextRequest) {
   const isPublicRoute =
     pathname === "/login" ||
     pathname === "/auth/callback" ||
-    pathname === "/api/login";
+    pathname === "/api/login" ||
+    pathname === "/portfolio" ||
+    pathname.startsWith("/portfolio/") ||
+    pathname === "/blog" ||
+    pathname.startsWith("/blog/") ||
+    pathname.startsWith("/api/portfolio/projects") ||
+    pathname.startsWith("/api/portfolio/blog") ||
+    pathname === "/api/portfolio/config";
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

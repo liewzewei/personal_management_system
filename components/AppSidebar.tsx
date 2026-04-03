@@ -23,7 +23,16 @@ import {
   BookOpen,
   Settings,
   LogOut,
+  Globe,
+  ChevronRight,
+  FolderKanban,
+  FileText,
 } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Sidebar,
   SidebarContent,
@@ -35,6 +44,9 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +59,12 @@ const NAV_ITEMS = [
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/diary", label: "Diary", icon: BookOpen },
   { href: "/settings", label: "Settings", icon: Settings },
+];
+
+const PORTFOLIO_SUB_ITEMS = [
+  { href: "/portfolio-admin/projects", label: "Projects", icon: FolderKanban },
+  { href: "/portfolio-admin/blog", label: "Blog", icon: FileText },
+  { href: "/portfolio-admin/config", label: "Site Config", icon: Settings },
 ];
 
 export function AppSidebar() {
@@ -159,6 +177,53 @@ export function AppSidebar() {
                   </SidebarMenuItem>
                 );
               })}
+              {/* Portfolio collapsible sub-menu */}
+              <Collapsible
+                asChild
+                defaultOpen={pathname.startsWith("/portfolio-admin")}
+                className="group/collapsible"
+              >
+                <SidebarMenuItem>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton
+                      tooltip="Portfolio"
+                      isActive={pathname.startsWith("/portfolio-admin")}
+                    >
+                      <Globe className="h-4 w-4 shrink-0" />
+                      <span>Portfolio</span>
+                      <ChevronRight className="ml-auto h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      {PORTFOLIO_SUB_ITEMS.map(({ href, label, icon: SubIcon }) => {
+                        const isSubActive =
+                          pathname === href || pathname.startsWith(href + "/");
+                        return (
+                          <SidebarMenuSubItem key={href}>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={isSubActive}
+                            >
+                              <a
+                                href={href}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setOpenMobile(false);
+                                  router.push(href);
+                                }}
+                              >
+                                <SubIcon className="h-4 w-4 shrink-0" />
+                                <span>{label}</span>
+                              </a>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        );
+                      })}
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </SidebarMenuItem>
+              </Collapsible>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

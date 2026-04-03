@@ -499,3 +499,120 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
+
+/* ================================================================
+ * Portfolio — Glassmorphism Styles
+ * ================================================================ */
+
+/* Animated gradient background with floating orbs */
+.portfolio-bg {
+  background: linear-gradient(135deg, hsl(220 20% 6%) 0%, hsl(240 15% 10%) 50%, hsl(260 15% 8%) 100%);
+  overflow: hidden;
+}
+
+.portfolio-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 0.25;
+  animation: portfolio-float 20s ease-in-out infinite;
+}
+
+.portfolio-orb-1 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, hsl(220 80% 60%), transparent 70%);
+  top: -10%;
+  left: -5%;
+  animation-delay: 0s;
+}
+
+.portfolio-orb-2 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, hsl(280 70% 55%), transparent 70%);
+  bottom: -10%;
+  right: -5%;
+  animation-delay: -7s;
+}
+
+.portfolio-orb-3 {
+  width: 350px;
+  height: 350px;
+  background: radial-gradient(circle, hsl(190 80% 50%), transparent 70%);
+  top: 40%;
+  left: 50%;
+  animation-delay: -14s;
+}
+
+@keyframes portfolio-float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(30px, -40px) scale(1.05); }
+  50% { transform: translate(-20px, 30px) scale(0.95); }
+  75% { transform: translate(40px, 20px) scale(1.03); }
+}
+
+/* Glassmorphism card */
+.glass-card {
+  background: color-mix(in oklch, var(--background) 60%, transparent);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border: 1px solid color-mix(in oklch, var(--border) 40%, transparent);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* Fade-in animation for page content */
+.portfolio-fade-in {
+  animation: portfolio-fade-in 0.6s ease-out both;
+}
+
+@keyframes portfolio-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Force light-on-dark text in the portfolio shell */
+.portfolio-shell {
+  --foreground: 210 40% 92%;
+  --muted-foreground: 215 20% 65%;
+  --primary: 217 91% 65%;
+  --border: 215 20% 20%;
+  --background: 220 20% 8%;
+  color: hsl(var(--foreground));
+}
+
+/* Tiptap content in portfolio context */
+.portfolio-prose .tiptap-renderer .ProseMirror {
+  color: hsl(210 40% 88%);
+}
+
+.portfolio-prose .tiptap-renderer .ProseMirror h1,
+.portfolio-prose .tiptap-renderer .ProseMirror h2,
+.portfolio-prose .tiptap-renderer .ProseMirror h3 {
+  color: hsl(210 40% 95%);
+}
+
+.portfolio-prose .tiptap-renderer .ProseMirror a {
+  color: hsl(217 91% 65%);
+}
+
+.portfolio-prose .tiptap-renderer .ProseMirror pre {
+  background: hsl(220 20% 12%);
+  border: 1px solid hsl(215 20% 18%);
+  border-radius: 8px;
+}
+
+.portfolio-prose .tiptap-renderer .ProseMirror blockquote {
+  border-left-color: hsl(215 20% 25%);
+  color: hsl(215 20% 70%);
+}
+
+.portfolio-prose .tiptap-renderer .ProseMirror img {
+  border-radius: 12px;
+}

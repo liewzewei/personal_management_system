@@ -5,17 +5,16 @@
  * - Defines global document structure and metadata.
  * - Loads global styles.
  * - Mounts the Toaster for toast notifications.
- * - Wraps app in SidebarProvider (cookie-persisted sidebar state).
- * - Renders collapsible AppSidebar + mobile BottomNav.
+ * - Wraps app in QueryProvider and TooltipProvider.
+ *
+ * Layout groups:
+ * - (app)       — authenticated PMS pages with sidebar/bottom nav
+ * - (portfolio) — public portfolio pages with glassmorphism layout
  */
 
 import type { Metadata, Viewport } from "next";
-import { cookies } from "next/headers";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
-import { BottomNav } from "@/components/BottomNav";
 import { QueryProvider } from "@/components/QueryProvider";
 import "./globals.css";
 import { Geist } from "next/font/google";
@@ -34,26 +33,17 @@ export const viewport: Viewport = {
   maximumScale: 1,
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const cookieStore = await cookies();
-  const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
-
   return (
     <html lang="en" className={cn("font-sans", geist.variable)}>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <QueryProvider>
           <TooltipProvider>
-            <SidebarProvider defaultOpen={defaultOpen} className="!h-svh">
-              <AppSidebar />
-              <SidebarInset className="flex-1 overflow-y-auto min-w-0 pb-16 md:pb-0">
-                {children}
-              </SidebarInset>
-              <BottomNav />
-            </SidebarProvider>
+            {children}
           </TooltipProvider>
           <Toaster />
         </QueryProvider>

@@ -33,7 +33,7 @@ import { createBrowserClient, createServerClient } from "@supabase/ssr";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
-import type { BodyMetric, CalendarEvent, CalendarEventInput, DailyNutritionSummary, DiaryEntry, DiaryFolder, ExerciseSession, FoodLog, IcalFeed, IcalFeedInput, OAuthToken, OutlookSyncState, PersonalRecord, RunLap, SavedFood, Task, TaskFilters, TaskInput, TaskWithSubtasks, UserPreferences } from "@/types";
+import type { BodyMetric, CalendarEvent, CalendarEventInput, DailyNutritionSummary, DiaryEntry, DiaryFolder, ExerciseSession, FoodLog, IcalFeed, IcalFeedInput, OAuthToken, OutlookSyncState, PersonalRecord, RunLap, SavedFood, Task, TaskFilters, TaskInput, TaskWithSubtasks, UserPreferences, PortfolioProject, PortfolioProjectInput, BlogPost, BlogPostInput, SiteConfig, SiteConfigInput } from "@/types";
 import type { PRDistanceBucket } from "@/types";
 import { calculatePace, getDistanceBucket } from "@/lib/exercise-utils";
 
@@ -2751,5 +2751,639 @@ export async function calculateDailyNutrition(
     return { data: summary, error: null };
   } catch (cause) {
     return { data: null, error: asError("Failed to calculate daily nutrition", cause) };
+  }
+}
+
+// ================================================================
+// Portfolio Module — Public Reads (service role, no auth required)
+// ================================================================
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 200) || "untitled";
+}
+
+export async function getPublishedProjects(): Promise<SupabaseQueryResult<PortfolioProject[]>> {
+  try {
+    const client = createServiceRoleClient();
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("portfolio_projects")
+      .select("*")
+      .eq("is_published", true)
+      .order("display_order", { ascending: true });
+
+    if (error) return { data: null, error: asError("Failed to fetch published projects", error) };
+    return { data: (data ?? []) as unknown as PortfolioProject[], error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch published projects", cause) };
+  }
+}
+
+export async function getPublishedProjectBySlug(slug: string): Promise<SupabaseQueryResult<PortfolioProject>> {
+  try {
+    const client = createServiceRoleClient();
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("portfolio_projects")
+      .select("*")
+      .eq("slug", slug)
+      .eq("is_published", true)
+      .maybeSingle();
+
+    if (error) return { data: null, error: asError("Failed to fetch project", error) };
+    if (!data) return { data: null, error: new Error("Project not found") };
+    return { data: data as unknown as PortfolioProject, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch project", cause) };
+  }
+}
+
+export async function getPublishedBlogPosts(): Promise<SupabaseQueryResult<BlogPost[]>> {
+  try {
+    const client = createServiceRoleClient();
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("blog_posts")
+      .select("*")
+      .eq("is_published", true)
+      .order("published_at", { ascending: false });
+
+    if (error) return { data: null, error: asError("Failed to fetch published blog posts", error) };
+    return { data: (data ?? []) as unknown as BlogPost[], error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch published blog posts", cause) };
+  }
+}
+
+export async function getPublishedBlogPostBySlug(slug: string): Promise<SupabaseQueryResult<BlogPost>> {
+  try {
+    const client = createServiceRoleClient();
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("blog_posts")
+      .select("*")
+      .eq("slug", slug)
+      .eq("is_published", true)
+      .maybeSingle();
+
+    if (error) return { data: null, error: asError("Failed to fetch blog post", error) };
+    if (!data) return { data: null, error: new Error("Blog post not found") };
+    return { data: data as unknown as BlogPost, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch blog post", cause) };
+  }
+}
+
+export async function getAdjacentBlogPosts(
+  publishedAt: string
+): Promise<SupabaseQueryResult<{ prev: BlogPost | null; next: BlogPost | null }>> {
+  try {
+    const client = createServiceRoleClient();
+
+    const { data: prevData } = await client
+      .schema<PublicSchema>("public")
+      .from("blog_posts")
+      .select("*")
+      .eq("is_published", true)
+      .lt("published_at", publishedAt)
+      .order("published_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const { data: nextData } = await client
+      .schema<PublicSchema>("public")
+      .from("blog_posts")
+      .select("*")
+      .eq("is_published", true)
+      .gt("published_at", publishedAt)
+      .order("published_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    return {
+      data: {
+        prev: (prevData as unknown as BlogPost) ?? null,
+        next: (nextData as unknown as BlogPost) ?? null,
+      },
+      error: null,
+    };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch adjacent blog posts", cause) };
+  }
+}
+
+export async function getPublicSiteConfig(): Promise<SupabaseQueryResult<SiteConfig>> {
+  try {
+    const client = createServiceRoleClient();
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("site_config")
+      .select("*")
+      .limit(1)
+      .maybeSingle();
+
+    if (error) return { data: null, error: asError("Failed to fetch site config", error) };
+    // Return defaults if no config row exists yet
+    if (!data) {
+      return {
+        data: {
+          id: "",
+          user_id: "",
+          name: "Ze Wei",
+          tagline: "Building What's Next",
+          bio: null,
+          avatar_url: null,
+          social_github: null,
+          social_linkedin: null,
+          social_email: null,
+          seo_title: null,
+          seo_description: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        error: null,
+      };
+    }
+    return { data: data as unknown as SiteConfig, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch site config", cause) };
+  }
+}
+
+// ================================================================
+// Portfolio Module — Admin (authenticated)
+// ================================================================
+
+export async function getAdminProjects(): Promise<SupabaseQueryResult<PortfolioProject[]>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("portfolio_projects")
+      .select("*")
+      .order("display_order", { ascending: true });
+
+    if (error) return { data: null, error: asError("Failed to fetch projects", error) };
+    return { data: (data ?? []) as unknown as PortfolioProject[], error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch projects", cause) };
+  }
+}
+
+export async function getAdminProjectById(id: string): Promise<SupabaseQueryResult<PortfolioProject>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("portfolio_projects")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error) return { data: null, error: asError("Failed to fetch project", error) };
+    if (!data) return { data: null, error: new Error("Project not found") };
+    return { data: data as unknown as PortfolioProject, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch project", cause) };
+  }
+}
+
+export async function createProject(input: PortfolioProjectInput): Promise<SupabaseQueryResult<PortfolioProject>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    const title = input.title ?? "Untitled Project";
+    let slug = input.slug ?? slugify(title);
+
+    // Ensure unique slug
+    const { data: existing } = await client
+      .schema<PublicSchema>("public")
+      .from("portfolio_projects")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("slug", slug)
+      .maybeSingle();
+
+    if (existing) {
+      slug = `${slug}-${Date.now()}`;
+    }
+
+    // Get next display_order
+    const { data: last } = await client
+      .schema<PublicSchema>("public")
+      .from("portfolio_projects")
+      .select("display_order")
+      .eq("user_id", userId)
+      .order("display_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const nextOrder = ((last as { display_order: number } | null)?.display_order ?? -1) + 1;
+
+    const row = {
+      user_id: userId,
+      title,
+      slug,
+      tagline: input.tagline ?? null,
+      description: input.description ?? null,
+      content: input.content ?? null,
+      content_text: input.content_text ?? null,
+      cover_image_url: input.cover_image_url ?? null,
+      tags: input.tags ?? null,
+      links: input.links ?? [],
+      display_order: input.display_order ?? nextOrder,
+      is_published: input.is_published ?? false,
+    };
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("portfolio_projects")
+      .insert(row)
+      .select()
+      .single();
+
+    if (error) return { data: null, error: asError("Failed to create project", error) };
+    return { data: data as unknown as PortfolioProject, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to create project", cause) };
+  }
+}
+
+export async function updateProject(id: string, input: PortfolioProjectInput): Promise<SupabaseQueryResult<PortfolioProject>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    // If slug is being changed, ensure uniqueness
+    if (input.slug) {
+      const { data: existing } = await client
+        .schema<PublicSchema>("public")
+        .from("portfolio_projects")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("slug", input.slug)
+        .neq("id", id)
+        .maybeSingle();
+
+      if (existing) {
+        return { data: null, error: new Error("A project with this slug already exists") };
+      }
+    }
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("portfolio_projects")
+      .update(input)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) return { data: null, error: asError("Failed to update project", error) };
+    return { data: data as unknown as PortfolioProject, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to update project", cause) };
+  }
+}
+
+export async function deleteProject(id: string): Promise<SupabaseQueryResult<null>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    const { error } = await client
+      .schema<PublicSchema>("public")
+      .from("portfolio_projects")
+      .delete()
+      .eq("id", id);
+
+    if (error) return { data: null, error: asError("Failed to delete project", error) };
+    return { data: null, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to delete project", cause) };
+  }
+}
+
+export async function reorderProjects(orderedIds: string[]): Promise<SupabaseQueryResult<null>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    for (let i = 0; i < orderedIds.length; i++) {
+      const { error } = await client
+        .schema<PublicSchema>("public")
+        .from("portfolio_projects")
+        .update({ display_order: i })
+        .eq("id", orderedIds[i]);
+
+      if (error) return { data: null, error: asError("Failed to reorder projects", error) };
+    }
+
+    return { data: null, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to reorder projects", cause) };
+  }
+}
+
+// ── Blog Posts (Admin) ───────────────────────────────────────────────────────
+
+export async function getAdminBlogPosts(): Promise<SupabaseQueryResult<BlogPost[]>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("blog_posts")
+      .select("*")
+      .order("display_order", { ascending: true });
+
+    if (error) return { data: null, error: asError("Failed to fetch blog posts", error) };
+    return { data: (data ?? []) as unknown as BlogPost[], error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch blog posts", cause) };
+  }
+}
+
+export async function getAdminBlogPostById(id: string): Promise<SupabaseQueryResult<BlogPost>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("blog_posts")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error) return { data: null, error: asError("Failed to fetch blog post", error) };
+    if (!data) return { data: null, error: new Error("Blog post not found") };
+    return { data: data as unknown as BlogPost, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch blog post", cause) };
+  }
+}
+
+export async function createBlogPost(input: BlogPostInput): Promise<SupabaseQueryResult<BlogPost>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    const title = input.title ?? "Untitled Post";
+    let slug = input.slug ?? slugify(title);
+
+    // Ensure unique slug
+    const { data: existing } = await client
+      .schema<PublicSchema>("public")
+      .from("blog_posts")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("slug", slug)
+      .maybeSingle();
+
+    if (existing) {
+      slug = `${slug}-${Date.now()}`;
+    }
+
+    // Get next display_order
+    const { data: last } = await client
+      .schema<PublicSchema>("public")
+      .from("blog_posts")
+      .select("display_order")
+      .eq("user_id", userId)
+      .order("display_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const nextOrder = ((last as { display_order: number } | null)?.display_order ?? -1) + 1;
+
+    const row = {
+      user_id: userId,
+      title,
+      subtitle: input.subtitle ?? null,
+      slug,
+      content: input.content ?? null,
+      content_text: input.content_text ?? null,
+      cover_image_url: input.cover_image_url ?? null,
+      tags: input.tags ?? null,
+      reading_time_minutes: input.reading_time_minutes ?? null,
+      display_order: input.display_order ?? nextOrder,
+      is_published: input.is_published ?? false,
+      published_at: input.published_at ?? null,
+    };
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("blog_posts")
+      .insert(row)
+      .select()
+      .single();
+
+    if (error) return { data: null, error: asError("Failed to create blog post", error) };
+    return { data: data as unknown as BlogPost, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to create blog post", cause) };
+  }
+}
+
+export async function updateBlogPost(id: string, input: BlogPostInput): Promise<SupabaseQueryResult<BlogPost>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    // If slug is being changed, ensure uniqueness
+    if (input.slug) {
+      const { data: existing } = await client
+        .schema<PublicSchema>("public")
+        .from("blog_posts")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("slug", input.slug)
+        .neq("id", id)
+        .maybeSingle();
+
+      if (existing) {
+        return { data: null, error: new Error("A blog post with this slug already exists") };
+      }
+    }
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("blog_posts")
+      .update(input)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) return { data: null, error: asError("Failed to update blog post", error) };
+    return { data: data as unknown as BlogPost, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to update blog post", cause) };
+  }
+}
+
+export async function deleteBlogPost(id: string): Promise<SupabaseQueryResult<null>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    const { error } = await client
+      .schema<PublicSchema>("public")
+      .from("blog_posts")
+      .delete()
+      .eq("id", id);
+
+    if (error) return { data: null, error: asError("Failed to delete blog post", error) };
+    return { data: null, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to delete blog post", cause) };
+  }
+}
+
+export async function reorderBlogPosts(orderedIds: string[]): Promise<SupabaseQueryResult<null>> {
+  try {
+    const client = await createServerSupabaseClient();
+    await requireUserId(client);
+
+    for (let i = 0; i < orderedIds.length; i++) {
+      const { error } = await client
+        .schema<PublicSchema>("public")
+        .from("blog_posts")
+        .update({ display_order: i })
+        .eq("id", orderedIds[i]);
+
+      if (error) return { data: null, error: asError("Failed to reorder blog posts", error) };
+    }
+
+    return { data: null, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to reorder blog posts", cause) };
+  }
+}
+
+// ── Site Config (Admin) ──────────────────────────────────────────────────────
+
+export async function getAdminSiteConfig(): Promise<SupabaseQueryResult<SiteConfig>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    const { data, error } = await client
+      .schema<PublicSchema>("public")
+      .from("site_config")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) return { data: null, error: asError("Failed to fetch site config", error) };
+
+    // Auto-create default config if none exists
+    if (!data) {
+      const { data: created, error: createError } = await client
+        .schema<PublicSchema>("public")
+        .from("site_config")
+        .insert({ user_id: userId })
+        .select()
+        .single();
+
+      if (createError) return { data: null, error: asError("Failed to create default site config", createError) };
+      return { data: created as unknown as SiteConfig, error: null };
+    }
+
+    return { data: data as unknown as SiteConfig, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to fetch site config", cause) };
+  }
+}
+
+export async function updateSiteConfig(input: SiteConfigInput): Promise<SupabaseQueryResult<SiteConfig>> {
+  try {
+    const client = await createServerSupabaseClient();
+    const userId = await requireUserId(client);
+
+    // Upsert: update if exists, insert if not
+    const { data: existing } = await client
+      .schema<PublicSchema>("public")
+      .from("site_config")
+      .select("id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (existing) {
+      const { data, error } = await client
+        .schema<PublicSchema>("public")
+        .from("site_config")
+        .update(input)
+        .eq("user_id", userId)
+        .select()
+        .single();
+
+      if (error) return { data: null, error: asError("Failed to update site config", error) };
+      return { data: data as unknown as SiteConfig, error: null };
+    } else {
+      const { data, error } = await client
+        .schema<PublicSchema>("public")
+        .from("site_config")
+        .insert({ user_id: userId, ...input })
+        .select()
+        .single();
+
+      if (error) return { data: null, error: asError("Failed to create site config", error) };
+      return { data: data as unknown as SiteConfig, error: null };
+    }
+  } catch (cause) {
+    return { data: null, error: asError("Failed to update site config", cause) };
+  }
+}
+
+// ── Portfolio Image Upload ───────────────────────────────────────────────────
+
+export async function ensurePortfolioImagesBucket(): Promise<void> {
+  try {
+    const admin = createServiceRoleClient();
+    const { data: buckets } = await admin.storage.listBuckets();
+    const exists = (buckets ?? []).some((b: { name: string }) => b.name === "portfolio-images");
+    if (!exists) {
+      await admin.storage.createBucket("portfolio-images", {
+        public: true,
+        fileSizeLimit: 10 * 1024 * 1024,
+        allowedMimeTypes: ["image/jpeg", "image/png", "image/gif", "image/webp"],
+      });
+    }
+  } catch {
+    // Bucket may already exist — swallow
+  }
+}
+
+export async function uploadPortfolioImage(
+  userId: string,
+  fileName: string,
+  body: Buffer,
+  contentType: string
+): Promise<SupabaseQueryResult<string>> {
+  try {
+    const admin = createServiceRoleClient();
+    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `${userId}/${Date.now()}-${safeName}`;
+
+    const { error } = await admin.storage
+      .from("portfolio-images")
+      .upload(path, body, { contentType, upsert: false });
+
+    if (error) return { data: null, error: asError("Failed to upload portfolio image", error) };
+
+    const { data: urlData } = admin.storage
+      .from("portfolio-images")
+      .getPublicUrl(path);
+
+    return { data: urlData.publicUrl, error: null };
+  } catch (cause) {
+    return { data: null, error: asError("Failed to upload portfolio image", cause) };
   }
 }

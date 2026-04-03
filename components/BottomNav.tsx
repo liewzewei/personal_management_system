@@ -31,8 +31,14 @@ const BOTTOM_NAV_ITEMS = [
 export function BottomNav() {
   const pathname = usePathname();
 
-  // Hide on login page
-  if (pathname === "/login") return null;
+  // Hide on login page and public portfolio routes
+  if (
+    pathname === "/login" ||
+    pathname === "/portfolio" ||
+    pathname.startsWith("/portfolio/") ||
+    pathname === "/blog" ||
+    pathname.startsWith("/blog/")
+  ) return null;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-background border-t safe-area-inset-bottom">
@@ -46,7 +52,7 @@ export function BottomNav() {
               href={href}
               className={cn(
                 "flex flex-col items-center justify-center gap-1",
-                "min-w-[56px] py-2 px-3 rounded-lg transition-colors",
+                "min-w-[56px] py-2 px-3 rounded-lg transition-[transform,box-shadow,color,background-color] duration-150 ease-out will-change-transform motion-reduce:transition-none motion-reduce:transform-none hover:-translate-y-0.5 hover:shadow-md active:translate-y-0.5 active:shadow-sm active:bg-muted/40",
                 isActive
                   ? "text-primary"
                   : "text-muted-foreground hover:text-foreground"

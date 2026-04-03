@@ -320,3 +320,99 @@ export interface ExerciseAnalytics {
     exerciseHeatmap: { date: string; count: number }[];
   };
 }
+
+// ----------------------------------------------------------------
+// Portfolio Module Types
+// ----------------------------------------------------------------
+
+export interface PortfolioProject {
+  id: UUID;
+  user_id: UUID;
+  title: string;
+  slug: string;
+  tagline: string | null;
+  description: string | null;
+  content: Record<string, unknown> | null;
+  content_text: string | null;
+  cover_image_url: string | null;
+  tags: string[] | null;
+  links: { label: string; url: string }[];
+  display_order: number;
+  is_published: boolean;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface PortfolioProjectInput {
+  title?: string;
+  slug?: string;
+  tagline?: string | null;
+  description?: string | null;
+  content?: Record<string, unknown> | null;
+  content_text?: string | null;
+  cover_image_url?: string | null;
+  tags?: string[] | null;
+  links?: { label: string; url: string }[];
+  display_order?: number;
+  is_published?: boolean;
+}
+
+export interface BlogPost {
+  id: UUID;
+  user_id: UUID;
+  title: string;
+  subtitle: string | null;
+  slug: string;
+  content: Record<string, unknown> | null;
+  content_text: string | null;
+  cover_image_url: string | null;
+  tags: string[] | null;
+  reading_time_minutes: number | null;
+  display_order: number;
+  is_published: boolean;
+  published_at: ISODateTime | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface BlogPostInput {
+  title?: string;
+  subtitle?: string | null;
+  slug?: string;
+  content?: Record<string, unknown> | null;
+  content_text?: string | null;
+  cover_image_url?: string | null;
+  tags?: string[] | null;
+  reading_time_minutes?: number | null;
+  display_order?: number;
+  is_published?: boolean;
+  published_at?: string | null;
+}
+
+export interface SiteConfig {
+  id: UUID;
+  user_id: UUID;
+  name: string;
+  tagline: string;
+  bio: string | null;
+  avatar_url: string | null;
+  social_github: string | null;
+  social_linkedin: string | null;
+  social_email: string | null;
+  seo_title: string | null;
+  seo_description: string | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface SiteConfigInput {
+  name?: string;
+  tagline?: string;
+  bio?: string | null;
+  avatar_url?: string | null;
+  social_github?: string | null;
+  social_linkedin?: string | null;
+  social_email?: string | null;
+  seo_title?: string | null;
+  seo_description?: string | null;
+}
